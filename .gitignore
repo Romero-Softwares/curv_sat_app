@@ -1,0 +1,6 @@
+__pycache__/
+*.py[cod]
+dados_pn.db
+dados_pn.db-shm
+dados_pn.db-wal
+configuracoes.json
