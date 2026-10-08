@@ -21,11 +21,11 @@ Os dados servem como referência de consulta. A aceitação de lote deve sempre 
 
 ## Configurações
 
-O botão **Configurações** permite selecionar a unidade da altura da flecha entre milímetros e polegadas. Quando a unidade é alterada, as medições exibidas são convertidas automaticamente, preservando a medida física. A mesma tela também registra o tipo de lâmina Almen e a unidade de exposição usada no ensaio.
+O botão **Configurações** permite selecionar a unidade da altura do arco entre milímetros e polegadas. Quando a unidade é alterada, as medições exibidas são convertidas automaticamente, preservando a medida física. A mesma tela também registra o tipo de lâmina Almen e a unidade de exposição usada no ensaio.
 
-Em **Desvios individuais por lâmina**, é possível adicionar e remover dinamicamente quantas lâminas forem necessárias, atribuindo uma identificação e o respectivo desvio. Em cada linha de medição, selecione a lâmina correspondente; o app subtrai somente aquele desvio da flecha daquela linha no cálculo e no gráfico. A opção **Sem desvio** permanece disponível para medições que não precisem de compensação.
+Em **Desvios individuais por lâmina**, é possível adicionar e remover dinamicamente quantas lâminas forem necessárias, atribuindo uma identificação e o respectivo desvio. Em cada linha de medição, selecione a lâmina correspondente; o app subtrai somente aquele desvio da altura do arco daquela linha no cálculo e no gráfico. A opção **Sem desvio** permanece disponível para medições que não precisem de compensação.
 
-Informe cada desvio como **medição indicada − valor real**: por exemplo, `+0,005 mm` significa que a leitura está 0,005 mm acima do valor real. Ao trocar entre mm e polegadas, as flechas e todos os desvios cadastrados são convertidos automaticamente. As medições originalmente digitadas são mantidas.
+Informe cada desvio como **medição indicada − valor real**: por exemplo, `+0,005 mm` significa que a leitura está 0,005 mm acima do valor real. Ao trocar entre mm e polegadas, as alturas de arco e todos os desvios cadastrados são convertidos automaticamente. As medições originalmente digitadas são mantidas.
 
 ## Instalação e execução
 

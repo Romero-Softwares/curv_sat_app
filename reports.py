@@ -6,6 +6,7 @@ import base64
 import html
 import json
 import os, sys
+import re
 import sqlite3
 from contextlib import contextmanager
 from datetime import datetime
@@ -41,14 +42,14 @@ CAMPO_UNIDADE_RELATORIO = {
     "Pressão": ("bar", "psi", "MPa", "kgf/cm²"),
 }
 
-CAMPO_TEXTO_RELATORIO = ("Peça / PN", "SN da peça", "Referência", "Reparo", "Equipamento")
+CAMPO_TEXTO_RELATORIO = ("Peça / PN", "SN da peça", "Referencia-CMM", "Reparo", "Equipamento")
 CAMPOS_DADOS_EQUIPAMENTO_RELATORIO = ("Equipamento", "Bico", "Injetor", "Distância", "Ângulo", "Pressão")
 _CAMPO_CHAVES = {
-    "Peça / PN": "piece_pn", "SN da peça": "part_serial_number", "Referência": "reference", "Reparo": "repair", "Equipamento": "equipment",
+    "Peça / PN": "piece_pn", "SN da peça": "part_serial_number", "Referencia-CMM": "reference_cmm", "Reparo": "repair", "Equipamento": "equipment",
     "Intensidade de peening": "required_peening_intensity", "Observações": "notes", "Esfera": "shot", "Dureza": "hardness",
     "Bico": "nozzle", "Injetor": "injector", "Distância": "distance", "Ângulo": "angle",
     "Pressão": "pressure", "Tipo de lâmina Almen": "almen_type",
-    "Unidade de exposição": "exposure_unit", "Unidade da flecha": "arc_unit",
+    "Unidade de exposição": "exposure_unit", "Unidade da altura do arco": "arc_unit",
     "Desvios de lâmina cadastrados": "registered_deviations",
 }
 
@@ -72,12 +73,80 @@ def criar_dados_relatorio():
     }
 
 
+def extrair_faixa_intensidade(valor):
+    """Extrai os limites de uma faixa de intensidade informada no cadastro.
+
+    Aceita vírgula ou ponto como separador decimal e ignora o sufixo do tipo
+    de lâmina, por exemplo ``0,014-0.018A``. Valores isolados ou limites
+    invertidos não representam uma faixa e, por isso, não recebem destaque.
+    """
+    numeros = re.findall(r"(?:\d+(?:[.,]\d+)?|[.,]\d+)", str(valor or ""))
+    if len(numeros) != 2:
+        return None
+    try:
+        limite_inferior, limite_superior = (float(numero.replace(",", ".")) for numero in numeros)
+    except ValueError:
+        return None
+    if limite_inferior < 0 or limite_superior <= limite_inferior:
+        return None
+    return limite_inferior, limite_superior
+
+
+def _converter_unidade_arco(valor, unidade_origem, unidade_destino):
+    """Converte valores entre as unidades suportadas no cadastro de intensidade."""
+    if unidade_origem == unidade_destino:
+        return valor
+    if unidade_origem == "mm" and unidade_destino == "in":
+        return valor / 25.4
+    if unidade_origem == "in" and unidade_destino == "mm":
+        return valor * 25.4
+    raise ValueError("Unidade de intensidade incompatível com o gráfico.")
+
+
+def destacar_faixa_intensidade(eixo, intensidade, unidade_intensidade, unidade_grafico, legenda=None):
+    """Desenha temporariamente os limites solicitados para a imagem do relatório.
+
+    Retorna os artistas criados e os limites originais do eixo para que o
+    gráfico interativo permaneça inalterado após a exportação.
+    """
+    faixa = extrair_faixa_intensidade(intensidade)
+    if faixa is None:
+        return None
+
+    limite_inferior, limite_superior = (
+        _converter_unidade_arco(valor, unidade_intensidade, unidade_grafico) for valor in faixa
+    )
+    limites_originais = eixo.get_ylim()
+    if limite_superior > limites_originais[1]:
+        eixo.set_ylim(limites_originais[0], limite_superior * 1.08)
+
+    cor = "#f39c12"
+    artistas = [
+        eixo.axhspan(limite_inferior, limite_superior, facecolor=cor, alpha=0.16, zorder=0, label=legenda),
+        eixo.axhline(limite_inferior, color=cor, linewidth=1.8, linestyle="--", zorder=4),
+        eixo.axhline(limite_superior, color=cor, linewidth=1.8, linestyle="--", zorder=4),
+    ]
+    return artistas, limites_originais
+
+
+def remover_destaque_faixa_intensidade(eixo, destaque):
+    """Remove a marcação temporária usada exclusivamente no relatório."""
+    if destaque is None:
+        return
+    artistas, limites_originais = destaque
+    for artista in artistas:
+        artista.remove()
+    eixo.set_ylim(limites_originais)
+
+
 def _migrar_campos_legados(dados):
     """Conserva valores cadastrados sob rótulos anteriores."""
     dados = dict(dados)
-    if "Referência" not in dados and "Desenho" in dados:
-        dados["Referência"] = dados["Desenho"]
-    dados.pop("Desenho", None)
+    campo_atual_referencia = "Referencia-CMM"
+    for campo_antigo in ("Referência", "Desenho"):
+        if campo_atual_referencia not in dados and campo_antigo in dados:
+            dados[campo_atual_referencia] = dados[campo_antigo]
+        dados.pop(campo_antigo, None)
 
     campo_atual = "Intensidade de peening"
     unidade_atual = f"Unidade de {campo_atual}"
@@ -117,6 +186,7 @@ class BancoDadosPN:
                         pn TEXT NOT NULL COLLATE NOCASE,
                         serial_number TEXT NOT NULL COLLATE NOCASE,
                         dados_json TEXT NOT NULL,
+                        curva_json TEXT,
                         atualizado_em TEXT NOT NULL,
                         PRIMARY KEY (pn, serial_number)
                     )
@@ -130,17 +200,21 @@ class BancoDadosPN:
                 )
                 conexao.execute("DROP TABLE cadastros_pn")
                 conexao.execute("ALTER TABLE cadastros_pn_novo RENAME TO cadastros_pn")
+                colunas = conexao.execute("PRAGMA table_info(cadastros_pn)").fetchall()
             conexao.execute(
                 """
                 CREATE TABLE IF NOT EXISTS cadastros_pn (
                     pn TEXT NOT NULL COLLATE NOCASE,
                     serial_number TEXT NOT NULL COLLATE NOCASE,
                     dados_json TEXT NOT NULL,
+                    curva_json TEXT,
                     atualizado_em TEXT NOT NULL,
                     PRIMARY KEY (pn, serial_number)
                 )
                 """
             )
+            if colunas and "curva_json" not in {coluna["name"] for coluna in colunas}:
+                conexao.execute("ALTER TABLE cadastros_pn ADD COLUMN curva_json TEXT")
             conexao.execute(
                 "CREATE INDEX IF NOT EXISTS idx_cadastros_pn_atualizado ON cadastros_pn(atualizado_em DESC)"
             )
@@ -153,7 +227,7 @@ class BancoDadosPN:
     def _normalizar_sn(valor):
         return str(valor or "").strip()
 
-    def salvar(self, dados):
+    def salvar(self, dados, curva=None):
         dados_normalizados = criar_dados_relatorio()
         dados_normalizados.update(
             {chave: str(valor or "").strip() for chave, valor in _migrar_campos_legados(dados).items()}
@@ -167,16 +241,18 @@ class BancoDadosPN:
         with self._conectar() as conexao:
             conexao.execute(
                 """
-                INSERT INTO cadastros_pn (pn, serial_number, dados_json, atualizado_em)
-                VALUES (?, ?, ?, ?)
+                INSERT INTO cadastros_pn (pn, serial_number, dados_json, curva_json, atualizado_em)
+                VALUES (?, ?, ?, ?, ?)
                 ON CONFLICT(pn, serial_number) DO UPDATE SET
                     dados_json = excluded.dados_json,
+                    curva_json = COALESCE(excluded.curva_json, cadastros_pn.curva_json),
                     atualizado_em = excluded.atualizado_em
                 """,
                 (
                     pn,
                     sn,
                     json.dumps(dados_normalizados, ensure_ascii=False),
+                    json.dumps(curva, ensure_ascii=False) if curva is not None else None,
                     datetime.now().isoformat(timespec="seconds"),
                 ),
             )
@@ -202,6 +278,25 @@ class BancoDadosPN:
         dados = criar_dados_relatorio()
         dados.update({chave: str(valor or "") for chave, valor in _migrar_campos_legados(dados_salvos).items()})
         return dados
+
+    def obter_ultima_curva(self):
+        """Retorna a curva associada ao PN salvo mais recentemente, se houver."""
+        with self._conectar() as conexao:
+            linha = conexao.execute(
+                """
+                SELECT curva_json FROM cadastros_pn
+                WHERE curva_json IS NOT NULL AND curva_json <> ''
+                ORDER BY atualizado_em DESC, rowid DESC
+                LIMIT 1
+                """
+            ).fetchone()
+        if linha is None:
+            return None
+        try:
+            curva = json.loads(linha["curva_json"])
+        except (TypeError, json.JSONDecodeError):
+            return None
+        return curva if isinstance(curva, dict) else None
 
     def buscar_registros(self, termo="", limite=40):
         termo = self._normalizar_pn(termo)
@@ -241,7 +336,41 @@ class BancoDadosPN:
         return cursor.rowcount > 0
 
 
-def montar_relatorio_html(informacoes_peca, norma, parametros, resultado, unidade_flecha, unidade_exposicao, grafico_base64):
+def _logo_empresa_data_uri(caminho_logo):
+    """Converte a logo selecionada em URI embutida para o relatório portátil."""
+    if not caminho_logo:
+        return ""
+
+    tipos_mime = {
+        ".bmp": "image/bmp",
+        ".gif": "image/gif",
+        ".jpeg": "image/jpeg",
+        ".jpg": "image/jpeg",
+        ".png": "image/png",
+        ".svg": "image/svg+xml",
+        ".webp": "image/webp",
+    }
+    try:
+        arquivo_logo = Path(caminho_logo)
+        dados = arquivo_logo.read_bytes()
+    except OSError:
+        return ""
+    tipo_mime = tipos_mime.get(arquivo_logo.suffix.lower())
+    if not dados or tipo_mime is None:
+        return ""
+    return f"data:{tipo_mime};base64,{base64.b64encode(dados).decode('ascii')}"
+
+
+def montar_relatorio_html(
+    informacoes_peca,
+    norma,
+    parametros,
+    resultado,
+    unidade_arco,
+    unidade_exposicao,
+    grafico_base64,
+    caminho_logo=None,
+):
     """Monta um relatório HTML autocontido, seguro para arquivamento e impressão."""
     def linhas_tabela(campos):
         linhas = []
@@ -254,13 +383,19 @@ def montar_relatorio_html(informacoes_peca, norma, parametros, resultado, unidad
 
     resultados = [
         (tr("saturation_time"), f"{resultado['t_sat']:.2f} {unidade_exposicao}"),
-        (tr("intensity"), f"{resultado['h_sat']:.4f} {unidade_flecha}"),
+        (tr("intensity"), f"{resultado['h_sat']:.4f} {unidade_arco}"),
         (tr("point_2t"), f"{resultado['t_2sat']:.2f} {unidade_exposicao}"),
-        (tr("height_2t"), f"{resultado['h_2sat']:.4f} {unidade_flecha}"),
+        (tr("height_2t"), f"{resultado['h_2sat']:.4f} {unidade_arco}"),
         (tr("fit"), f"{resultado['r2']:.4f}"),
         (tr("measurements"), str(len(resultado['h_data_compensada']))),
     ]
     data_emissao = datetime.now().strftime("%d/%m/%Y %H:%M")
+    logo_empresa = _logo_empresa_data_uri(caminho_logo)
+    logo_html = (
+        f'<img class="logo-empresa" src="{logo_empresa}" alt="{html.escape(tr("company_logo"))}">'
+        if logo_empresa
+        else ""
+    )
     return f"""<!doctype html>
 <html lang="{html_language()}">
 <head>
@@ -269,7 +404,10 @@ def montar_relatorio_html(informacoes_peca, norma, parametros, resultado, unidad
 <style>
     @page {{ size: A4; margin: 16mm; }}
     body {{ color: #172033; font: 11pt Arial, sans-serif; margin: 0; }}
+    .cabecalho {{ align-items: center; border: 1.5px solid #2f80c4; border-radius: 5px; display: flex; gap: 20px; margin-bottom: 22px; min-height: 106px; padding: 14px 18px; }}
+    .cabecalho-conteudo {{ flex: 1; min-width: 0; }}
     h1 {{ color: #153e67; font-size: 20pt; margin: 0 0 5px; }}
+    .logo-empresa {{ border-right: 1px solid #b7c9da; flex: 0 0 180px; height: 105px; object-fit: contain; order: -1; padding-right: 20px; width: 180px; }}
     h2 {{ border-bottom: 2px solid #2f80c4; color: #153e67; font-size: 13pt; margin: 24px 0 8px; padding-bottom: 4px; }}
     .subtitle {{ color: #52606d; margin: 0; }}
     .meta {{ color: #52606d; font-size: 9pt; margin-top: 14px; }}
@@ -279,22 +417,30 @@ def montar_relatorio_html(informacoes_peca, norma, parametros, resultado, unidad
     .norma {{ background: #f1f8f4; border-left: 4px solid #2e9b62; padding: 10px; white-space: pre-line; }}
     .grafico {{ border: 1px solid #cbd5e1; box-sizing: border-box; margin-top: 8px; max-width: 100%; padding: 8px; width: 100%; }}
     .aviso {{ background: #fff8e5; border-left: 4px solid #e0a020; margin-top: 18px; padding: 10px; }}
+    .resultado-curva {{ break-before: page; page-break-before: always; }}
 </style>
 </head>
 <body>
-<h1>{tr('report_heading')}</h1>
-<p class="subtitle">{tr('report_subtitle')}</p>
-<p class="meta">{tr('issued', date=data_emissao)}</p>
+<header class="cabecalho">
+    {logo_html}
+    <div class="cabecalho-conteudo">
+        <h1>{tr('report_heading')}</h1>
+        <p class="subtitle">{tr('report_subtitle')}</p>
+        <p class="meta">{tr('issued', date=data_emissao)}</p>
+    </div>
+</header>
 <h2>{tr('piece_information')}</h2>
 <table>{linhas_tabela(informacoes_peca.items())}</table>
 <h2>{tr('standard_to_meet')}</h2>
 <div class="norma">{html.escape(str(norma).strip() or tr('no_information'))}</div>
 <h2>{tr('process_parameters')}</h2>
 <table>{linhas_tabela(parametros.items())}</table>
-<h2>{tr('curve_results')}</h2>
-<table>{linhas_tabela(resultados)}</table>
-<h2>{tr('saturation_chart')}</h2>
-<img class="grafico" src="data:image/png;base64,{grafico_base64}" alt="{tr('saturation_chart')}">
+<section class="resultado-curva">
+    <h2>{tr('curve_results')}</h2>
+    <table>{linhas_tabela(resultados)}</table>
+    <h2>{tr('saturation_chart')}</h2>
+    <img class="grafico" src="data:image/png;base64,{grafico_base64}" alt="{tr('saturation_chart')}">
+</section>
 </body>
 </html>"""
 
@@ -390,7 +536,7 @@ def abrir_relatorio(app):
     campos_peca = {}
     criar_campo_texto(area_peca, "Peça / PN", 0, 0, campos_peca)
     criar_campo_texto(area_peca, "SN da peça", 0, 1, campos_peca)
-    criar_campo_texto(area_peca, "Referência", 1, 0, campos_peca)
+    criar_campo_texto(area_peca, "Referencia-CMM", 1, 0, campos_peca)
     criar_campo_texto(area_peca, "Reparo", 1, 1, campos_peca)
 
     norma_var = ctk.StringVar()
@@ -487,7 +633,16 @@ def abrir_relatorio(app):
 
     def salvar_atualizacao():
         try:
-            dados = app.banco_pn.salvar(coletar_dados())
+            dados = coletar_dados()
+            curva = app.curva_atual_para_salvar()
+            if curva is not None:
+                curva.update(
+                    {
+                        "intensidade": dados["Intensidade de peening"],
+                        "unidade_intensidade": dados["Unidade de Intensidade de peening"],
+                    }
+                )
+            dados = app.banco_pn.salvar(dados, curva)
         except (OSError, sqlite3.Error, ValueError) as err:
             app.lbl_status.configure(text=tr("save_pn_error", message=err), text_color="#e74c3c")
             return None
@@ -533,28 +688,43 @@ def abrir_relatorio(app):
         parametros = {
             "Tipo de lâmina Almen": app._nome_tipo_lamina(),
             "Unidade de exposição": f"{app._nome_tipo_exposicao()} ({app.abreviacao_exposicao})",
-            "Unidade da flecha": app.unidade_flecha,
+            "Unidade da altura do arco": app.unidade_arco,
             **{rotulo: valor_com_unidade(rotulo) for rotulo in ("Intensidade de peening", "Esfera", "Dureza")},
             **{
                 rotulo: dados[rotulo] if rotulo in CAMPO_TEXTO_RELATORIO else valor_com_unidade(rotulo)
                 for rotulo in CAMPOS_DADOS_EQUIPAMENTO_RELATORIO
             },
             "Desvios de lâmina cadastrados": ", ".join(
-                f"{nome}: {valor:+.4f} {app.unidade_flecha}" for nome, valor in app.desvios_laminas.items()
+                f"{nome}: {valor:+.4f} {app.unidade_arco}" for nome, valor in app.desvios_laminas.items()
             ) or tr("none_applied"),
             "Observações": dados["Observações"],
         }
-        informacoes_peca = {rotulo: dados[rotulo] for rotulo in ("Peça / PN", "SN da peça", "Referência", "Reparo")}
+        informacoes_peca = {rotulo: dados[rotulo] for rotulo in ("Peça / PN", "SN da peça", "Referencia-CMM", "Reparo")}
         buffer_grafico = BytesIO()
-        app.fig.savefig(buffer_grafico, format="png", dpi=180, facecolor=app.fig.get_facecolor(), bbox_inches="tight")
+        destaque = destacar_faixa_intensidade(
+            app.ax,
+            dados["Intensidade de peening"],
+            dados["Unidade de Intensidade de peening"],
+            app.unidade_arco,
+            tr(
+                "required_peening_intensity_legend",
+                value=dados["Intensidade de peening"],
+                unit=dados["Unidade de Intensidade de peening"],
+            ),
+        )
+        try:
+            app.fig.savefig(buffer_grafico, format="png", dpi=180, facecolor=app.fig.get_facecolor(), bbox_inches="tight")
+        finally:
+            remover_destaque_faixa_intensidade(app.ax, destaque)
         relatorio = montar_relatorio_html(
             informacoes_peca,
             dados["Norma"],
             parametros,
             app._ultimo_resultado,
-            app.unidade_flecha,
+            app.unidade_arco,
             app.abreviacao_exposicao,
             base64.b64encode(buffer_grafico.getvalue()).decode("ascii"),
+            app.logo_empresa_path,
         )
         caminho = filedialog.asksaveasfilename(
             parent=janela,

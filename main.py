@@ -1,5 +1,6 @@
-import os, sys
+import os, shutil, sys
 import tkinter as tk
+from tkinter import filedialog
 os.environ["QT_LOGGING_RULES"] = "qt.qpa.window=false"
 def get_base_path():
     if getattr(sys, 'frozen', False):
@@ -62,22 +63,70 @@ import numpy as np
 from scipy.optimize import curve_fit
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+from matplotlib.ticker import FuncFormatter, MaxNLocator
 from pathlib import Path
 import tempfile
 
-from reports import BancoDadosPN, abrir_relatorio, criar_dados_relatorio, montar_relatorio_html as montar_relatorio_html_modulo
+from app_paths import user_data_file
+from reports import (
+    BancoDadosPN,
+    abrir_relatorio,
+    criar_dados_relatorio,
+    destacar_faixa_intensidade,
+    extrair_faixa_intensidade,
+    montar_relatorio_html as montar_relatorio_html_modulo,
+)
 from technical_references import abrir_referencias_tecnicas
-from i18n import LANGUAGES, load_language, save_language, tr
+from i18n import LANGUAGES, load_company_logo_path, load_language, save_company_logo_path, save_language, tr
 
 # ==============================================================================
 # 3. RESTANTE DO SEU CÓDIGO ORIGINAL INTACTO
 # ==============================================================================
 
-ctk.set_appearance_mode("System")
+def eh_windows_8(sistema=None, build=None):
+    """Retorna se o sistema alvo é Windows 8 ou Windows 8.1.
+
+    O número de compilação é consultado no Registro, pois executáveis sem
+    manifesto podem receber uma versão legada de ``sys.getwindowsversion()``
+    nas versões mais recentes do Windows.
+    """
+    if (sistema or os.name) != "nt":
+        return False
+
+    if build is None:
+        try:
+            import winreg
+
+            with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r"SOFTWARE\Microsoft\Windows NT\CurrentVersion") as chave:
+                build = int(winreg.QueryValueEx(chave, "CurrentBuildNumber")[0])
+        except (ImportError, OSError, TypeError, ValueError):
+            versao = sys.getwindowsversion()
+            return versao.major == 6 and versao.minor in (2, 3)
+
+    return int(build) in (9200, 9600)
+
+
+def configurar_compatibilidade_visual():
+    """Mantém o desenho da interface estável nos computadores com Windows 8."""
+    if eh_windows_8():
+        # O CustomTkinter usa shcore para DPI por monitor, indisponível no
+        # Windows 8 (build 9200). Deixar o Windows escalar o processo preserva
+        # as proporções entre painéis, fontes, gráfico e janelas auxiliares.
+        ctk.deactivate_automatic_dpi_awareness()
+        ctk.set_widget_scaling(1.0)
+        ctk.set_window_scaling(1.0)
+        ctk.set_appearance_mode("Light")
+        return True
+
+    ctk.set_appearance_mode("System")
+    return False
+
+
+configurar_compatibilidade_visual()
 ctk.set_default_color_theme("blue")
 
 MM_POR_POLEGADA = 25.4
-UNIDADES_FLECHA = {"mm": "unit_mm", "in": "unit_in"}
+UNIDADES_ARCO = {"mm": "unit_mm", "in": "unit_in"}
 UNIDADES_EXPOSICAO = {
     "seconds": ("s", "exposure_seconds"),
     "passes": ("pass", "exposure_passes"),
@@ -96,7 +145,7 @@ CAMPO_UNIDADE_RELATORIO = {
     "Pressão": ("bar", "psi", "MPa", "kgf/cm²"),
 }
 
-CAMPO_TEXTO_RELATORIO = ("Peça / PN", "SN da peça", "Referência", "Reparo", "Equipamento", "Bico", "Injetor")
+CAMPO_TEXTO_RELATORIO = ("Peça / PN", "SN da peça", "Referencia-CMM", "Reparo", "Equipamento", "Bico", "Injetor")
 CAMPOS_DADOS_EQUIPAMENTO_RELATORIO = ("Equipamento", "Bico", "Injetor", "Distância", "Ângulo", "Pressão")
 
 
@@ -105,15 +154,52 @@ def almen_model(t, A, b):
     return A * (1.0 - np.exp(-b * t))
 
 
-def converter_flecha(valor, unidade_origem, unidade_destino):
+def converter_arco(valor, unidade_origem, unidade_destino):
     """Converte a altura de arco entre milímetros e polegadas."""
-    if unidade_origem not in UNIDADES_FLECHA or unidade_destino not in UNIDADES_FLECHA:
+    if unidade_origem not in UNIDADES_ARCO or unidade_destino not in UNIDADES_ARCO:
         raise ValueError(tr("invalid_arc_unit"))
     if unidade_origem == unidade_destino:
         return float(valor)
     if unidade_origem == "mm":
         return float(valor) / MM_POR_POLEGADA
     return float(valor) * MM_POR_POLEGADA
+
+
+def configurar_escala_vertical(eixo, valores, unidade, limites_adicionais=()):
+    """Configura o eixo Y a partir da curva e dos limites de intensidade.
+
+    Curvas com valores positivos começam em zero, referência visual padrão
+    para a leitura de intensidade. As marcações usam intervalos regulares,
+    sem os valores artificiais produzidos por uma divisão linear da faixa.
+    """
+    valores_validos = np.asarray([*valores, *limites_adicionais], dtype=float)
+    valores_validos = valores_validos[np.isfinite(valores_validos)]
+    if not len(valores_validos):
+        raise ValueError("Não há valores válidos para configurar a escala vertical.")
+
+    minimo = float(np.min(valores_validos))
+    maximo = float(np.max(valores_validos))
+    amplitude = maximo - minimo
+    if minimo >= 0:
+        limite_inferior = 0.0
+    else:
+        margem_inferior = max(
+            amplitude * 0.05,
+            abs(minimo) * 0.01,
+            0.001 if unidade == "mm" else 0.0001,
+        )
+        limite_inferior = minimo - margem_inferior
+    margem_superior = max(amplitude * 0.12, abs(maximo) * 0.03, 0.001 if unidade == "mm" else 0.0001)
+    limite_superior = maximo + margem_superior
+    if limite_superior <= limite_inferior:
+        limite_superior = limite_inferior + margem_superior
+
+    eixo.set_ylim(limite_inferior, limite_superior)
+    eixo.yaxis.set_major_locator(MaxNLocator(nbins=6, min_n_ticks=4, steps=[1, 2, 2.5, 5, 10]))
+    casas_decimais = 2 if unidade == "mm" and (limite_superior - limite_inferior) >= 0.1 else 3
+    if unidade != "mm":
+        casas_decimais = 4
+    eixo.yaxis.set_major_formatter(FuncFormatter(lambda valor, _pos: f"{valor:.{casas_decimais}f}"))
 
 
 def compensar_desvio_lamina(alturas, desvio_lamina=0.0):
@@ -155,15 +241,20 @@ def calcular_saturacao(t_data, h_data, desvio_lamina=0.0):
     if np.ptp(h_data_compensada) == 0:
         raise ValueError(tr("varying_arc"))
 
-    popt, _ = curve_fit(
+    # Normaliza a altura somente durante a otimização. Assim o ajuste tem a
+    # mesma escala numérica para curvas informadas em mm ou in e retorna o
+    # mesmo tempo de saturação para a mesma curva física.
+    escala_altura = float(np.max(h_data_compensada))
+    popt_normalizado, _ = curve_fit(
         almen_model,
         t_data,
-        h_data_compensada,
-        p0=[float(np.max(h_data_compensada)), 0.1],
+        h_data_compensada / escala_altura,
+        p0=[1.0, 0.1],
         bounds=(0, np.inf),
         maxfev=10_000,
     )
-    A, b = popt
+    A = float(popt_normalizado[0]) * escala_altura
+    b = float(popt_normalizado[1])
     if b <= np.finfo(float).eps:
         raise ValueError(tr("saturation_rate"))
 
@@ -189,7 +280,7 @@ def calcular_saturacao(t_data, h_data, desvio_lamina=0.0):
     }
 
 
-def montar_relatorio_html(informacoes_peca, norma, parametros, resultado, unidade_flecha, unidade_exposicao, grafico_base64):
+def montar_relatorio_html(informacoes_peca, norma, parametros, resultado, unidade_arco, unidade_exposicao, grafico_base64):
     """Monta um relatório HTML autocontido, seguro para arquivamento e impressão."""
     def linhas_tabela(campos):
         linhas = []
@@ -202,9 +293,9 @@ def montar_relatorio_html(informacoes_peca, norma, parametros, resultado, unidad
 
     resultados = [
         ("Tempo de saturação (T)", f"{resultado['t_sat']:.2f} {unidade_exposicao}"),
-        ("Intensidade H(T)", f"{resultado['h_sat']:.4f} {unidade_flecha}"),
+        ("Intensidade H(T)", f"{resultado['h_sat']:.4f} {unidade_arco}"),
         ("Ponto 2T", f"{resultado['t_2sat']:.2f} {unidade_exposicao}"),
-        ("Altura H(2T)", f"{resultado['h_2sat']:.4f} {unidade_flecha}"),
+        ("Altura H(2T)", f"{resultado['h_2sat']:.4f} {unidade_arco}"),
         ("Coeficiente de ajuste R²", f"{resultado['r2']:.4f}"),
         ("Medições utilizadas", str(len(resultado['h_data_compensada']))),
     ]
@@ -268,12 +359,16 @@ class AlmenApp(ctk.CTk):
         self.minsize(950, 600)
 
         self.rows = []
-        self.unidade_flecha = "mm"
+        self.unidade_arco = "mm"
         self.tipo_lamina = "A"
         self.tipo_exposicao = "seconds"
-        self.desvios_laminas = {"Lâmina 1": 0.0}
+        # Nenhuma lâmina possui desvio por padrão. O usuário cadastra somente
+        # as lâminas que precisam de compensação na tela de configurações.
+        self.desvios_laminas = {}
+        self.logo_empresa_path = load_company_logo_path()
         self._arquivo_impressao = None
         self._ultimo_resultado = None
+        self._intensidade_destaque_exemplo = None
         self.dados_relatorio = {
             **{rotulo: "" for rotulo in CAMPO_TEXTO_RELATORIO},
             **{rotulo: "" for rotulo in CAMPO_UNIDADE_RELATORIO},
@@ -286,7 +381,6 @@ class AlmenApp(ctk.CTk):
         self.dados_relatorio = criar_dados_relatorio()
         self._build_ui()
         self._load_sample_data()
-        self.calcular_e_plotar()
         self.protocol("WM_DELETE_WINDOW", self.ao_fechar)
         
         caminho_icone = resource_path(relative_path="assets/icons/logo.ico")
@@ -326,8 +420,8 @@ class AlmenApp(ctk.CTk):
     def abreviacao_exposicao(self):
         return UNIDADES_EXPOSICAO[self.tipo_exposicao][0]
 
-    def _nome_unidade_flecha(self, unidade=None):
-        return self.t(UNIDADES_FLECHA[unidade or self.unidade_flecha])
+    def _nome_unidade_arco(self, unidade=None):
+        return self.t(UNIDADES_ARCO[unidade or self.unidade_arco])
 
     def _nome_tipo_lamina(self, tipo=None):
         return self.t(TIPOS_LAMINA[tipo or self.tipo_lamina])
@@ -499,12 +593,12 @@ class AlmenApp(ctk.CTk):
         self.scroll_table.configure(
             label_text=(
                 f"{self.t('exposure')} ({self.abreviacao_exposicao})  |  "
-                f"{self.t('arc_height')} ({self.unidade_flecha})  |  {self.t('blade_deviation')}"
+                f"{self.t('arc_height')} ({self.unidade_arco})  |  {self.t('blade_deviation')}"
             )
         )
         for row in self.rows:
             row["tempo"].configure(placeholder_text=f"{self.t('exposure')} ({self.abreviacao_exposicao})")
-            row["altura"].configure(placeholder_text=f"{self.t('arc_height')} ({self.unidade_flecha})")
+            row["altura"].configure(placeholder_text=f"{self.t('arc_height')} ({self.unidade_arco})")
 
     def _opcoes_lamina(self):
         return [self.t("no_deviation"), *self.desvios_laminas]
@@ -523,7 +617,7 @@ class AlmenApp(ctk.CTk):
         entry_t.grid(row=row_idx, column=0, padx=5, pady=4, sticky="ew")
         if t_val != "":
             entry_t.insert(0, str(t_val))
-        entry_h = ctk.CTkEntry(self.scroll_table, placeholder_text=f"{self.t('arc_height')} ({self.unidade_flecha})", width=120)
+        entry_h = ctk.CTkEntry(self.scroll_table, placeholder_text=f"{self.t('arc_height')} ({self.unidade_arco})", width=120)
         entry_h.grid(row=row_idx, column=1, padx=5, pady=4, sticky="ew")
         if h_val != "":
             entry_h.insert(0, str(h_val))
@@ -547,10 +641,55 @@ class AlmenApp(ctk.CTk):
             row["menu_lamina"].destroy()
 
     def _load_sample_data(self):
+        curva_salva = self.banco_pn.obter_ultima_curva()
         while self.rows:
             self.remove_row()
-        for tempo, altura in [(0.5, 0.11), (1.0, 0.17), (2.0, 0.22), (4.0, 0.24)]:
+        if not (curva_salva and self._carregar_curva_salva(curva_salva)):
+            self._intensidade_destaque_exemplo = None
+            for tempo, altura in [(0.5, 0.11), (1.0, 0.17), (2.0, 0.22), (4.0, 0.24)]:
+                self.add_row(tempo, altura)
+        self.calcular_e_plotar()
+
+    def _carregar_curva_salva(self, curva):
+        """Carrega a última curva de PN como exemplo, mantendo o fallback estático seguro."""
+        try:
+            tempos = [float(valor) for valor in curva["tempos"]]
+            alturas = [float(valor) for valor in curva["alturas"]]
+            if len(tempos) < 4 or len(tempos) != len(alturas):
+                return False
+            unidade_arco = curva.get("unidade_arco", curva.get("unidade_flecha"))
+            if unidade_arco not in UNIDADES_ARCO:
+                return False
+            if curva.get("tipo_lamina") not in TIPOS_LAMINA:
+                return False
+            if curva.get("tipo_exposicao") not in UNIDADES_EXPOSICAO:
+                return False
+        except (KeyError, TypeError, ValueError):
+            return False
+
+        self.unidade_arco = unidade_arco
+        self.tipo_lamina = curva["tipo_lamina"]
+        self.tipo_exposicao = curva["tipo_exposicao"]
+        self._atualizar_textos_unidade()
+        self._intensidade_destaque_exemplo = (
+            curva.get("intensidade", ""), curva.get("unidade_intensidade", self.unidade_arco)
+        )
+        for tempo, altura in zip(tempos, alturas):
             self.add_row(tempo, altura)
+        return True
+
+    def curva_atual_para_salvar(self):
+        """Cria um retrato portátil da curva calculada para reutilização como exemplo."""
+        if self._ultimo_resultado is None:
+            return None
+        tempos, _alturas, _desvios = self._obter_dados_entradas()
+        return {
+            "tempos": [float(valor) for valor in tempos],
+            "alturas": [float(valor) for valor in self._ultimo_resultado["h_data_compensada"]],
+            "unidade_arco": self.unidade_arco,
+            "tipo_lamina": self.tipo_lamina,
+            "tipo_exposicao": self.tipo_exposicao,
+        }
 
     def _obter_dados_entradas(self):
         tempos, alturas, desvios = [], [], []
@@ -577,8 +716,8 @@ class AlmenApp(ctk.CTk):
     def abrir_configuracoes(self):
         janela = ctk.CTkToplevel(self)
         janela.title(self.t("settings_title"))
-        janela.geometry("1140x520")
-        janela.minsize(1140, 520)
+        janela.geometry("1140x620")
+        janela.minsize(1140, 620)
         janela.transient(self)
         janela.grab_set()
         janela.grid_columnconfigure(0, weight=1)
@@ -596,10 +735,11 @@ class AlmenApp(ctk.CTk):
         ctk.CTkLabel(janela, text=self.t("settings"), font=ctk.CTkFont(size=19, weight="bold")).grid(
             row=0, column=0, columnspan=2, padx=24, pady=(24, 14), sticky="w"
         )
-        unidade_var = ctk.StringVar(value=self._nome_unidade_flecha())
+        unidade_var = ctk.StringVar(value=self._nome_unidade_arco())
         lamina_var = ctk.StringVar(value=self._nome_tipo_lamina())
         exposicao_var = ctk.StringVar(value=self._nome_tipo_exposicao())
         idioma_var = ctk.StringVar(value=LANGUAGES[self.idioma])
+        logo_var = ctk.StringVar(value=self.logo_empresa_path)
 
         painel_esquerdo = ctk.CTkFrame(janela, corner_radius=10)
         painel_esquerdo.grid(row=1, column=0, padx=(24, 8), pady=(0, 16), sticky="nsew")
@@ -615,7 +755,7 @@ class AlmenApp(ctk.CTk):
             painel_esquerdo, 1, 0, self.t("language"), idioma_var, list(LANGUAGES.values())
         )
         self._adicionar_opcao_config(
-            painel_esquerdo, 1, 1, self.t("arc_unit"), unidade_var, [self.t(chave) for chave in UNIDADES_FLECHA.values()]
+            painel_esquerdo, 1, 1, self.t("arc_unit"), unidade_var, [self.t(chave) for chave in UNIDADES_ARCO.values()]
         )
         self._adicionar_opcao_config(
             painel_esquerdo, 2, 0, self.t("almen_type"), lamina_var, [self.t(chave) for chave in TIPOS_LAMINA.values()]
@@ -624,11 +764,50 @@ class AlmenApp(ctk.CTk):
             painel_esquerdo, 2, 1, self.t("exposure_unit"), exposicao_var, [self.t(item[1]) for item in UNIDADES_EXPOSICAO.values()]
         )
 
+        logo_frame = ctk.CTkFrame(painel_esquerdo, fg_color="transparent")
+        logo_frame.grid(row=5, column=0, columnspan=2, padx=16, pady=(10, 0), sticky="ew")
+        logo_frame.grid_columnconfigure(0, weight=1)
+        ctk.CTkLabel(logo_frame, text=self.t("company_logo")).grid(row=0, column=0, sticky="w")
+        ctk.CTkEntry(logo_frame, textvariable=logo_var, state="readonly").grid(
+            row=1, column=0, padx=(0, 8), pady=(2, 4), sticky="ew"
+        )
+
+        def selecionar_logo():
+            caminho = filedialog.askopenfilename(
+                parent=janela,
+                title=self.t("select_company_logo"),
+                filetypes=[
+                    (self.t("image_files"), "*.png *.jpg *.jpeg *.gif *.bmp *.webp *.svg"),
+                    (self.t("all_files"), "*.*"),
+                ],
+            )
+            if caminho:
+                logo_var.set(caminho)
+
+        ctk.CTkButton(logo_frame, text=self.t("browse_image"), width=100, command=selecionar_logo).grid(
+            row=1, column=1, padx=(0, 6), pady=(2, 4)
+        )
+        ctk.CTkButton(
+            logo_frame,
+            text=self.t("clear_logo"),
+            width=82,
+            fg_color="#6b7280",
+            hover_color="#4b5563",
+            command=lambda: logo_var.set(""),
+        ).grid(row=1, column=2, pady=(2, 4))
+        ctk.CTkLabel(
+            logo_frame,
+            text=self.t("company_logo_help"),
+            justify="left",
+            wraplength=420,
+            text_color="#4a5568",
+        ).grid(row=2, column=0, columnspan=3, pady=(0, 4), sticky="w")
+
         normas_frame = ctk.CTkFrame(painel_esquerdo, fg_color="#1f344a", corner_radius=8)
         # Os controles ocupam duas linhas visuais cada (rótulo + seletor).
         # Manter as normas na linha 5 evita que o painel cubra a segunda
         # linha de opções e impede que uma área vazia separe os campos.
-        normas_frame.grid(row=5, column=0, columnspan=2, padx=16, pady=(10, 16), sticky="ew")
+        normas_frame.grid(row=6, column=0, columnspan=2, padx=16, pady=(8, 16), sticky="ew")
         normas_frame.grid_columnconfigure(0, weight=1)
         ctk.CTkLabel(
             normas_frame,
@@ -654,10 +833,10 @@ class AlmenApp(ctk.CTk):
         painel_direito = ctk.CTkFrame(janela, corner_radius=10)
         painel_direito.grid(row=1, column=1, padx=(8, 24), pady=(0, 16), sticky="nsew")
         painel_direito.grid_columnconfigure(0, weight=1)
-        painel_direito.grid_rowconfigure(2, weight=1)
+        painel_direito.grid_rowconfigure(3, weight=1)
         ctk.CTkLabel(
             painel_direito,
-            text=self.t("individual_deviations", unit=self.unidade_flecha),
+            text=self.t("individual_deviations", unit=self.unidade_arco),
             font=ctk.CTkFont(size=15, weight="bold"),
         ).grid(row=0, column=0, padx=16, pady=(16, 2), sticky="w")
         ctk.CTkLabel(
@@ -670,7 +849,6 @@ class AlmenApp(ctk.CTk):
 
         area_desvios = ctk.CTkScrollableFrame(painel_direito, height=150)
         area_desvios._scrollbar.grid_forget()
-        area_desvios.grid(row=2, column=0, padx=16, pady=(0, 8), sticky="nsew")
         area_desvios.grid_columnconfigure(1, weight=1)
         area_desvios.grid_columnconfigure(2, weight=1)
         ctk.CTkLabel(area_desvios, text="#", text_color="#a0a0a0").grid(row=0, column=0, padx=(8, 4), pady=(5, 2))
@@ -696,6 +874,7 @@ class AlmenApp(ctk.CTk):
             reordenar_linhas_desvio()
 
         def adicionar_linha_desvio(nome="", valor="0"):
+            area_desvios.grid(row=3, column=0, padx=16, pady=(0, 8), sticky="nsew")
             indice = len(linhas_desvio) + 1
             indice_widget = ctk.CTkLabel(area_desvios, text=str(indice), width=22)
             nome_var = ctk.StringVar(value=nome or f"{self.t('blade')} {indice}")
@@ -730,7 +909,7 @@ class AlmenApp(ctk.CTk):
             painel_direito,
             text=self.t("add_blade"),
             command=adicionar_linha_desvio,
-        ).grid(row=3, column=0, padx=16, pady=(0, 16), sticky="w")
+        ).grid(row=2, column=0, padx=16, pady=(0, 16), sticky="w")
 
         def aplicar():
             novos_desvios = {}
@@ -752,16 +931,34 @@ class AlmenApp(ctk.CTk):
                     return
                 novos_desvios[nome] = desvio
 
-            nova_unidade = self._codigo_por_nome(UNIDADES_FLECHA, unidade_var.get())
+            nova_unidade = self._codigo_por_nome(UNIDADES_ARCO, unidade_var.get())
             self.desvios_laminas = {
-                nome: converter_flecha(desvio, self.unidade_flecha, nova_unidade)
+                nome: converter_arco(desvio, self.unidade_arco, nova_unidade)
                 for nome, desvio in novos_desvios.items()
             }
-            self._converter_entradas_flecha(nova_unidade)
+            self._converter_entradas_arco(nova_unidade)
             self.tipo_lamina = self._codigo_por_nome(TIPOS_LAMINA, lamina_var.get())
             self.tipo_exposicao = self._codigo_por_nome(UNIDADES_EXPOSICAO, exposicao_var.get())
             novo_idioma = next(codigo for codigo, nome in LANGUAGES.items() if nome == idioma_var.get())
             idioma_alterado = novo_idioma != self.idioma
+            caminho_logo_origem = logo_var.get().strip()
+            if caminho_logo_origem:
+                arquivo_logo = Path(caminho_logo_origem)
+                extensoes_logo = {".bmp", ".gif", ".jpeg", ".jpg", ".png", ".svg", ".webp"}
+                if not arquivo_logo.is_file() or arquivo_logo.suffix.lower() not in extensoes_logo:
+                    self.lbl_status.configure(text=self.t("invalid_company_logo"))
+                    return
+                try:
+                    destino_logo = user_data_file(f"logo_empresa{arquivo_logo.suffix.lower()}")
+                    if arquivo_logo.resolve() != destino_logo.resolve():
+                        shutil.copy2(arquivo_logo, destino_logo)
+                    self.logo_empresa_path = str(destino_logo)
+                except OSError as err:
+                    self.lbl_status.configure(text=self.t("error", message=err))
+                    return
+            else:
+                self.logo_empresa_path = ""
+            save_company_logo_path(self.logo_empresa_path)
             self.idioma = novo_idioma
             save_language(novo_idioma)
             self._atualizar_textos_unidade()
@@ -785,8 +982,8 @@ class AlmenApp(ctk.CTk):
             row=linha * 2, column=coluna, padx=16, pady=(0, 5), sticky="w"
         )
 
-    def _converter_entradas_flecha(self, nova_unidade):
-        if nova_unidade == self.unidade_flecha:
+    def _converter_entradas_arco(self, nova_unidade):
+        if nova_unidade == self.unidade_arco:
             return
         for row in self.rows:
             entry_h = row["altura"]
@@ -794,12 +991,12 @@ class AlmenApp(ctk.CTk):
             if not texto:
                 continue
             try:
-                convertido = converter_flecha(texto.replace(",", "."), self.unidade_flecha, nova_unidade)
+                convertido = converter_arco(texto.replace(",", "."), self.unidade_arco, nova_unidade)
             except ValueError:
                 continue
             entry_h.delete(0, "end")
             entry_h.insert(0, f"{convertido:.6g}")
-        self.unidade_flecha = nova_unidade
+        self.unidade_arco = nova_unidade
 
     def calcular_e_plotar(self):
         self.lbl_status.configure(text="")
@@ -814,9 +1011,9 @@ class AlmenApp(ctk.CTk):
             h_data_compensada = resultado["h_data_compensada"]
 
             self.lbl_tsat.configure(text=f"{self.t('saturation_time')}: {t_sat:.2f} {self.abreviacao_exposicao}")
-            self.lbl_hsat.configure(text=f"{self.t('intensity')}: {h_sat:.4f} {self.unidade_flecha} {self.tipo_lamina}")
+            self.lbl_hsat.configure(text=f"{self.t('intensity')}: {h_sat:.4f} {self.unidade_arco} {self.tipo_lamina}")
             self.lbl_t2sat.configure(text=f"{self.t('point_2t')}: {t_2sat:.2f} {self.abreviacao_exposicao}")
-            self.lbl_h2sat.configure(text=f"{self.t('height_2t')}: {h_2sat:.4f} {self.unidade_flecha}")
+            self.lbl_h2sat.configure(text=f"{self.t('height_2t')}: {h_2sat:.4f} {self.unidade_arco}")
             self.lbl_r2.configure(text=f"{self.t('fit')}: {r2:.4f}")
             desvios_aplicados = desvios[np.abs(desvios) > np.finfo(float).eps]
             if len(desvios_aplicados):
@@ -824,7 +1021,7 @@ class AlmenApp(ctk.CTk):
                     text=(
                         f"{self.t('deviations')}: {len(desvios_aplicados)}/{len(desvios)} "
                         f"({np.min(desvios_aplicados):+.4f} a {np.max(desvios_aplicados):+.4f} "
-                        f"{self.unidade_flecha})"
+                        f"{self.unidade_arco})"
                     )
                 )
             else:
@@ -845,7 +1042,6 @@ class AlmenApp(ctk.CTk):
             )
             self.ax.plot(t_smooth, h_smooth, color="#3498db", linewidth=2, label=self.t("fitted_curve", r2=r2))
             self.ax.plot(t_sat, h_sat, "go", markersize=8, label=self.t("saturation_point", value=t_sat, unit=self.abreviacao_exposicao))
-            self.ax.vlines(t_sat, 0, h_sat, colors="#2ecc71", linestyles="dashed", alpha=0.7)
             self.ax.hlines(h_sat, 0, t_sat, colors="#2ecc71", linestyles="dashed", alpha=0.7)
             self.ax.plot(
                 t_2sat,
@@ -854,12 +1050,41 @@ class AlmenApp(ctk.CTk):
                 markersize=6,
                 label=self.t("point_2t_legend", value=t_2sat, unit=self.abreviacao_exposicao),
             )
-            self.ax.vlines(t_2sat, 0, h_2sat, colors="#e056fd", linestyles="dotted", alpha=0.7)
             self.ax.set_title(self.t("chart_title"), fontsize=12, pad=10)
             self.ax.set_xlabel(f"{self.t('exposure')} ({self.abreviacao_exposicao})")
-            self.ax.set_ylabel(f"{self.t('arc_height')} ({self.unidade_flecha})")
+            self.ax.set_ylabel(f"{self.t('arc_height')} ({self.unidade_arco})")
             self.ax.set_xlim(0, max(t_smooth))
-            self.ax.set_ylim(0, max(h_smooth) * 1.15)
+            limites_intensidade = ()
+            if self._intensidade_destaque_exemplo:
+                intensidade, unidade_intensidade = self._intensidade_destaque_exemplo
+                faixa_intensidade = extrair_faixa_intensidade(intensidade)
+                if faixa_intensidade:
+                    limites_intensidade = tuple(
+                        converter_arco(valor, unidade_intensidade, self.unidade_arco)
+                        for valor in faixa_intensidade
+                    )
+            configurar_escala_vertical(
+                self.ax,
+                (*h_data_compensada, h_sat, h_2sat),
+                self.unidade_arco,
+                limites_intensidade,
+            )
+            limite_inferior_eixo = self.ax.get_ylim()[0]
+            self.ax.vlines(t_sat, limite_inferior_eixo, h_sat, colors="#2ecc71", linestyles="dashed", alpha=0.7)
+            self.ax.vlines(t_2sat, limite_inferior_eixo, h_2sat, colors="#e056fd", linestyles="dotted", alpha=0.7)
+            if self._intensidade_destaque_exemplo:
+                intensidade, unidade_intensidade = self._intensidade_destaque_exemplo
+                destacar_faixa_intensidade(
+                    self.ax,
+                    intensidade,
+                    unidade_intensidade,
+                    self.unidade_arco,
+                    self.t(
+                        "required_peening_intensity_legend",
+                        value=intensidade,
+                        unit=unidade_intensidade,
+                    ),
+                )
             self.ax.legend(
                 loc="lower right",
                 facecolor="#ffffff",

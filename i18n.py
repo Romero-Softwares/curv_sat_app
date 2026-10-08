@@ -26,18 +26,18 @@ _TEXTS = {
         "example": "Exemplo", "settings": "Configurações", "calculate": "Calcular e Gerar Gráfico",
         "generate_report": "Gerar relatório", "print_chart": "Imprimir gráfico", "technical_tables": "Tabelas técnicas",
         "system_references": "REFERÊNCIAS NORMATIVAS DO SISTEMA", "exposure": "Exposição",
-        "arc_height": "Altura da flecha", "blade_deviation": "Lâmina / desvio", "no_deviation": "Sem desvio",
+        "arc_height": "Altura do arco", "blade_deviation": "Lâmina / desvio", "no_deviation": "Sem desvio",
         "saturation_time": "Tempo de saturação (T)", "intensity": "Intensidade H(T)", "point_2t": "Ponto (2T)",
         "height_2t": "Altura H(2T)", "fit": "Ajuste R²", "deviations": "Desvios", "none_applied": "nenhum aplicado",
         "chart_title": "Curva de Saturação Almen", "measured_points": "Pontos medidos compensados",
         "fitted_curve": "Curva ajustada ($R^2={r2:.3f}$)", "saturation_point": "Saturação T ({value:.2f} {unit})",
-        "row_incomplete": "Preencha exposição e flecha na linha {index}.", "invalid_numbers": "Use números válidos na linha {index}.",
+        "row_incomplete": "Preencha exposição e altura do arco na linha {index}.", "invalid_numbers": "Use números válidos na linha {index}.",
         "error": "Erro: {message}", "print_windows_only": "A impressão direta está disponível somente no Windows.",
         "chart_sent_to_printer": "Gráfico enviado para a impressora padrão.", "print_error": "Não foi possível iniciar a impressão: {message}",
         "settings_title": "Configurações da curva", "general_parameters": "Parâmetros gerais", "language": "Idioma do sistema",
-        "arc_unit": "Unidade da altura da flecha", "almen_type": "Tipo da lâmina Almen", "exposure_unit": "Unidade de exposição",
+        "arc_unit": "Unidade da altura do arco", "almen_type": "Tipo da lâmina Almen", "exposure_unit": "Unidade de exposição",
         "registered_references": "Referências normativas registradas", "individual_deviations": "Desvios individuais por lâmina ({unit})",
-        "deviation_help": "Cadastre uma linha para cada lâmina que possua desvio próprio. Informe o desvio como medição indicada − valor real; ele será subtraído somente da flecha associada àquela lâmina.",
+        "deviation_help": "Cadastre uma linha para cada lâmina que possua desvio próprio. Informe o desvio como medição indicada − valor real; ele será subtraído somente da altura do arco associada àquela lâmina.",
         "blade_id": "Identificação da lâmina", "deviation": "Desvio", "remove": "Remover", "add_blade": "+ Adicionar lâmina / desvio",
         "apply_settings": "Aplicar configurações", "blade": "Lâmina", "invalid_deviation": "Erro: informe um desvio numérico válido na lâmina {index}.",
         "blade_required": "Erro: informe a identificação da lâmina {index}.", "unique_blades": "Erro: use identificações únicas e diferentes de 'Sem desvio'.",
@@ -46,7 +46,7 @@ _TEXTS = {
         "search_pn_placeholder": "Digite todo ou parte do PN", "results": "Resultados", "search": "Buscar", "none_found": "Nenhum PN encontrado",
         "piece_identification": "Identificação e especificação", "process_data": "Dados do equipamento e processo", "value": "Valor",
         "standard": "Norma a ser atendida", "notes": "Observações", "save_update_pn": "Salvar / atualizar PN", "delete_pn": "Excluir PN",
-        "generate_html": "Gerar relatório HTML", "piece_pn": "Peça / PN", "reference": "Referência", "repair": "Reparo", "equipment": "Equipamento",
+        "generate_html": "Gerar relatório HTML", "piece_pn": "Peça / PN", "reference": "Referência", "reference_cmm": "Referencia-CMM", "repair": "Reparo", "equipment": "Equipamento",
         "no_information": "Não informado.", "report_subtitle": "Registro técnico de ensaio e parâmetros do processo", "issued": "Emitido em {date}",
         "piece_information": "Informações da peça", "standard_to_meet": "Norma a ser atendida", "process_parameters": "Parâmetros do processo",
         "curve_results": "Resultados da curva", "saturation_chart": "Gráfico de saturação", "save_report": "Salvar relatório técnico",
@@ -70,6 +70,8 @@ _TEXTS = {
 _TEXTS["PT"]["part_serial_number"] = "SN da peça (opcional)"
 _TEXTS["EN"]["part_serial_number"] = "Part serial number (optional)"
 _TEXTS["ES"]["part_serial_number"] = "N.º de serie de la pieza (opcional)"
+for _idioma in _TEXTS:
+    _TEXTS[_idioma]["reference_cmm"] = "Referencia-CMM"
 
 # Textos de interface que não se encaixam nas chaves curtas acima. Mantê-los
 # aqui evita que módulos de dados e telas técnicas carreguem conteúdo em um
@@ -80,13 +82,13 @@ _TEXTS["PT"].update({
     "normative_notice": "Referências SAE registradas; a conformidade exige validação do processo e dos dados do ensaio.",
     "unit_mm": "Milímetros (mm)", "unit_in": "Polegadas (in)",
     "exposure_seconds": "Segundos", "exposure_passes": "Passes", "exposure_rotations": "Rotações", "exposure_cycles": "Ciclos", "exposure_inverse_feed": "Inverso do avanço",
-    "almen_type_n": "N - fina", "almen_type_a": "A - padrão", "almen_type_c": "C - espessa",
-    "deviation_placeholder": "Ex.: 0,005", "point_2t_legend": "Ponto 2T ({value:.2f} {unit})",
+    "almen_type_n": "N", "almen_type_a": "A", "almen_type_c": "C",
+    "deviation_placeholder": "Ex.: 0,005", "point_2t_legend": "Ponto 2T ({value:.2f} {unit})", "required_peening_intensity_legend": "Faixa de intensidade de peening: {value} {unit}",
     "shot": "Esfera", "hardness": "Dureza", "nozzle": "Bico", "injector": "Injetor", "distance": "Distância", "angle": "Ângulo", "pressure": "Pressão",
     "registered_deviations": "Desvios de lâmina cadastrados", "standard_default": "SAE J443 e SAE J2597", "standard_other": "Outra norma (informar em observações)",
     "pn_required_save": "Informe a Peça / PN para salvar o cadastro.", "pn_required_remove": "Informe a Peça / PN a remover.",
-    "invalid_arc_unit": "Unidade de flecha inválida.", "deviation_not_finite": "O desvio da lâmina deve ser um número finito.",
-    "deviation_per_height": "Informe um desvio para cada flecha medida.", "negative_compensated": "O desvio informado torna alguma flecha compensada negativa.",
+    "invalid_arc_unit": "Unidade da altura do arco inválida.", "deviation_not_finite": "O desvio da lâmina deve ser um número finito.",
+    "deviation_per_height": "Informe um desvio para cada altura do arco medida.", "negative_compensated": "O desvio informado torna alguma altura do arco compensada negativa.",
     "data_vectors": "Tempo e altura devem ser vetores do mesmo tamanho.", "data_finite": "Tempo e altura devem conter apenas números finitos.",
     "exposure_negative": "Os tempos de exposição não podem ser negativos.", "arc_negative": "As alturas de arco não podem ser negativas.",
     "min_measurements": "A curva exige pelo menos 4 medições válidas.", "min_nonzero_arc": "A curva exige pelo menos 4 alturas de arco não nulas.",
@@ -99,8 +101,8 @@ _TEXTS["EN"].update({
     "normative_notice": "SAE references are registered; compliance requires validation of the process and test data.",
     "unit_mm": "Millimetres (mm)", "unit_in": "Inches (in)",
     "exposure_seconds": "Seconds", "exposure_passes": "Passes", "exposure_rotations": "Rotations", "exposure_cycles": "Cycles", "exposure_inverse_feed": "Inverse feed rate",
-    "almen_type_n": "N - thin", "almen_type_a": "A - standard", "almen_type_c": "C - thick",
-    "deviation_placeholder": "E.g.: 0.005", "point_2t_legend": "Point 2T ({value:.2f} {unit})",
+    "almen_type_n": "N", "almen_type_a": "A", "almen_type_c": "C",
+    "deviation_placeholder": "E.g.: 0.005", "point_2t_legend": "Point 2T ({value:.2f} {unit})", "required_peening_intensity_legend": "Peening intensity range: {value} {unit}",
     "shot": "Shot", "hardness": "Hardness", "nozzle": "Nozzle", "injector": "Injector", "distance": "Distance", "angle": "Angle", "pressure": "Pressure",
     "registered_deviations": "Registered strip deviations", "standard_default": "SAE J443 and SAE J2597", "standard_other": "Other standard (enter in notes)",
     "pn_required_save": "Enter the Part / PN to save the record.", "pn_required_remove": "Enter the Part / PN to remove.",
@@ -118,8 +120,8 @@ _TEXTS["ES"].update({
     "normative_notice": "Las referencias SAE están registradas; la conformidad exige validar el proceso y los datos del ensayo.",
     "unit_mm": "Milímetros (mm)", "unit_in": "Pulgadas (in)",
     "exposure_seconds": "Segundos", "exposure_passes": "Pasadas", "exposure_rotations": "Rotaciones", "exposure_cycles": "Ciclos", "exposure_inverse_feed": "Inverso del avance",
-    "almen_type_n": "N - fina", "almen_type_a": "A - estándar", "almen_type_c": "C - gruesa",
-    "deviation_placeholder": "Ej.: 0,005", "point_2t_legend": "Punto 2T ({value:.2f} {unit})",
+    "almen_type_n": "N", "almen_type_a": "A", "almen_type_c": "C",
+    "deviation_placeholder": "Ej.: 0,005", "point_2t_legend": "Punto 2T ({value:.2f} {unit})", "required_peening_intensity_legend": "Rango de intensidad de peening: {value} {unit}",
     "shot": "Esfera", "hardness": "Dureza", "nozzle": "Boquilla", "injector": "Inyector", "distance": "Distancia", "angle": "Ángulo", "pressure": "Presión",
     "registered_deviations": "Desviaciones de lámina registradas", "standard_default": "SAE J443 y SAE J2597", "standard_other": "Otra norma (indicar en observaciones)",
     "pn_required_save": "Introduzca la Pieza / PN para guardar el registro.", "pn_required_remove": "Introduzca la Pieza / PN que desea eliminar.",
@@ -132,12 +134,40 @@ _TEXTS["ES"].update({
     "saturation_rate": "No fue posible determinar una tasa de saturación positiva.",
 })
 
+_TEXTS["PT"].update({
+    "company_logo": "Logo da empresa",
+    "select_company_logo": "Selecionar logo da empresa",
+    "image_files": "Arquivos de imagem",
+    "browse_image": "Procurar...",
+    "clear_logo": "Limpar",
+    "company_logo_help": "A imagem é copiada para os dados do aplicativo e aparece no cabeçalho dos novos relatórios.",
+    "invalid_company_logo": "Erro: selecione um arquivo de imagem válido.",
+})
+_TEXTS["EN"].update({
+    "company_logo": "Company logo",
+    "select_company_logo": "Select company logo",
+    "image_files": "Image files",
+    "browse_image": "Browse...",
+    "clear_logo": "Clear",
+    "company_logo_help": "The image is copied to the application data and appears in the header of new reports.",
+    "invalid_company_logo": "Error: select a valid image file.",
+})
+_TEXTS["ES"].update({
+    "company_logo": "Logo de la empresa",
+    "select_company_logo": "Seleccionar logo de la empresa",
+    "image_files": "Archivos de imagen",
+    "browse_image": "Buscar...",
+    "clear_logo": "Limpiar",
+    "company_logo_help": "La imagen se copia a los datos de la aplicación y aparece en el encabezado de los nuevos informes.",
+    "invalid_company_logo": "Error: seleccione un archivo de imagen válido.",
+})
+
 _TECHNICAL_CONTENT = {
     "PT": {
         "analysis": ("Roteiro de análise de esferas / mídia metálica", "Use o roteiro junto com o plano de inspeção e o certificado do lote; ele não substitui ensaios nem critérios contratuais.", ("Item", "Verificação", "Finalidade"), (("Identificação", "Tipo, lote, fabricante e certificado", "Mantém a rastreabilidade da mídia usada."), ("Granulometria", "Ensaio por peneiras ASTM E11", "Confirma a distribuição e a designação SAE J444."), ("Forma", "Esfericidade, partículas quebradas e satélites", "Evita impacto irregular e acabamento inconsistente."), ("Dureza", "Faixa especificada para a mídia", "Influencia a energia transferida e a vida útil da esfera."), ("Composição", "Análise química conforme especificação", "Confirma o material, como aço fundido de alto carbono."), ("Integridade", "Trincas, porosidade, contaminação e oxidação", "Reduz risco de quebra e contaminação da peça."), ("Desempenho", "Teste mecânico / vida Ervin quando requerido", "Compara durabilidade e energia transmitida pela mídia."))),
         "grain": ("Granulometria de esfera conforme designação SAE J444", "A abertura nominal identifica a classe. A distribuição completa e seus limites devem ser conferidos na edição vigente da J444 e no certificado do lote.", ("Designação", "Abertura nominal (in)", "Abertura nominal (mm)", "Classe visual"), (("S70", "0.0070", "0,178", "Fina"), ("S110", "0.0110", "0,279", "Fina"), ("S170", "0.0170", "0,432", "Média"), ("S230", "0.0230", "0,584", "Média"), ("S280", "0.0280", "0,711", "Média"), ("S330", "0.0330", "0,838", "Média"), ("S390", "0.0390", "0,991", "Grossa"), ("S460", "0.0460", "1,168", "Grossa"), ("S550", "0.0550", "1,397", "Grossa"), ("S660", "0.0660", "1,676", "Muito grossa"), ("S780", "0.0780", "1,981", "Muito grossa"))),
         "media": ("Tipos de mídia", "Escolha conforme desenho, material da peça e processo aprovado.", ("Tipo", "Designação", "Referência", "Uso"), (("Esfera de aço fundido alto carbono", "S + designação", "SAE J827 e SAE J444", "Shot peening e limpeza."), ("Esfera de aço fundido baixo carbono", "S + designação", "SAE J2175 e SAE J444", "Quando a especificação exigir baixa dureza/carbono."), ("Arame cortado condicionado", "Diâmetro nominal", "SAE J441", "Mídia metálica de alta durabilidade."), ("Granalha angular de aço (grit)", "G + designação", "SAE J1993 e SAE J444", "Limpeza, decapagem e ancoragem; não substitui esfera sem aprovação."), ("Esfera de vidro ou cerâmica", "Conforme fornecedor", "Especificação do processo", "Mídias não metálicas para aplicações definidas."))),
-        "standards": ("Normas de referência", "Verifique a revisão contratual antes de declarar conformidade.", ("Norma", "Assunto", "Aplicação no app"), (("SAE J444", "Classificação de tamanhos de esfera e granalha fundidas", "Define designações S/G e controle por peneiras."), ("SAE J827", "Esfera de aço fundido de alto carbono", "Composição e características físicas da esfera."), ("SAE J2175", "Esfera de aço fundido de baixo carbono", "Requisitos de composição, dureza, microestrutura e características físicas."), ("SAE J441", "Arame cortado", "Guia para seleção e uso de shot de arame cortado."), ("SAE J1993", "Granalha de aço fundido alto carbono", "Requisitos para grit usado em limpeza e ataque superficial."), ("SAE J445", "Teste mecânico de esfera e granalha metálicas", "Métodos laboratoriais para avaliar a mídia."), ("SAE J442", "Lâmina, suporte e medidor Almen", "Equipamentos e suprimentos para medição de flecha."), ("SAE J443", "Determinação e verificação da intensidade", "Curva de saturação e uso das lâminas Almen."), ("SAE J2277", "Cobertura de shot peening", "Método para determinar a cobertura do processo."), ("SAE J2597", "Curvas de saturação geradas por computador", "Orientação para curvas de saturação assistidas por software."), ("AMS2430 / AMS2431", "Processo e aquisição de mídia aeroespacial", "Aplicar somente quando exigido pelo desenho, contrato ou cliente."))),
+        "standards": ("Normas de referência", "Verifique a revisão contratual antes de declarar conformidade.", ("Norma", "Assunto", "Aplicação no app"), (("SAE J444", "Classificação de tamanhos de esfera e granalha fundidas", "Define designações S/G e controle por peneiras."), ("SAE J827", "Esfera de aço fundido de alto carbono", "Composição e características físicas da esfera."), ("SAE J2175", "Esfera de aço fundido de baixo carbono", "Requisitos de composição, dureza, microestrutura e características físicas."), ("SAE J441", "Arame cortado", "Guia para seleção e uso de shot de arame cortado."), ("SAE J1993", "Granalha de aço fundido alto carbono", "Requisitos para grit usado em limpeza e ataque superficial."), ("SAE J445", "Teste mecânico de esfera e granalha metálicas", "Métodos laboratoriais para avaliar a mídia."), ("SAE J442", "Lâmina, suporte e medidor Almen", "Equipamentos e suprimentos para medição de altura do arco."), ("SAE J443", "Determinação e verificação da intensidade", "Curva de saturação e uso das lâminas Almen."), ("SAE J2277", "Cobertura de shot peening", "Método para determinar a cobertura do processo."), ("SAE J2597", "Curvas de saturação geradas por computador", "Orientação para curvas de saturação assistidas por software."), ("AMS2430 / AMS2431", "Processo e aquisição de mídia aeroespacial", "Aplicar somente quando exigido pelo desenho, contrato ou cliente."))),
         "notice": "Consulta técnica: confirme sempre a revisão vigente da norma e os limites de aceitação no certificado do lote, desenho da peça e procedimento aprovado.",
     },
     "EN": {
@@ -159,7 +189,7 @@ _TECHNICAL_CONTENT = {
 
 def load_language() -> str:
     try:
-        language = json.loads(_SETTINGS_FILE.read_text(encoding="utf-8")).get("language", DEFAULT_LANGUAGE)
+        language = _load_settings().get("language", DEFAULT_LANGUAGE)
     except (OSError, json.JSONDecodeError, AttributeError):
         try:
             save_language(DEFAULT_LANGUAGE)
@@ -172,7 +202,37 @@ def load_language() -> str:
 def save_language(language: str) -> None:
     if language not in LANGUAGES:
         raise ValueError(f"Idioma não suportado: {language}")
-    _SETTINGS_FILE.write_text(json.dumps({"language": language}, ensure_ascii=False, indent=2), encoding="utf-8")
+    configuracoes = _load_settings()
+    configuracoes["language"] = language
+    _save_settings(configuracoes)
+
+
+def load_company_logo_path() -> str:
+    """Retorna o caminho da logo corporativa configurada."""
+    caminho = _load_settings().get("company_logo_path", "")
+    return caminho if isinstance(caminho, str) else ""
+
+
+def save_company_logo_path(caminho: str) -> None:
+    """Persiste o caminho da cópia local da logo corporativa."""
+    configuracoes = _load_settings()
+    configuracoes["company_logo_path"] = caminho
+    _save_settings(configuracoes)
+
+
+def _load_settings() -> dict:
+    try:
+        configuracoes = json.loads(_SETTINGS_FILE.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return configuracoes if isinstance(configuracoes, dict) else {}
+
+
+def _save_settings(configuracoes: dict) -> None:
+    _SETTINGS_FILE.write_text(
+        json.dumps(configuracoes, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
 
 
 def tr(key: str, language: str | None = None, **values) -> str:

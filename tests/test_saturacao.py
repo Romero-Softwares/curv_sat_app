@@ -5,10 +5,20 @@ from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
 import numpy as np
+from matplotlib.figure import Figure
 
 import app_paths
-from main import calcular_saturacao, compensar_desvio_lamina, converter_flecha, montar_relatorio_html
-from reports import BancoDadosPN
+from main import (
+    TIPOS_LAMINA,
+    calcular_saturacao,
+    compensar_desvio_lamina,
+    configurar_escala_vertical,
+    configurar_compatibilidade_visual,
+    converter_arco,
+    eh_windows_8,
+    montar_relatorio_html,
+)
+from reports import BancoDadosPN, destacar_faixa_intensidade, extrair_faixa_intensidade, remover_destaque_faixa_intensidade
 from technical_data import GRANULOMETRIA_ESFERAS, NORMAS_REFERENCIA
 from i18n import LANGUAGES, _TEXTS, load_language, save_language, technical_content, tr
 
@@ -20,6 +30,28 @@ class CalcularSaturacaoTests(unittest.TestCase):
 
     def tearDown(self):
         save_language(self.idioma_anterior)
+
+    def test_tipos_de_lamina_exibem_apenas_siglas(self):
+        self.assertEqual([tr(chave, "PT") for chave in TIPOS_LAMINA.values()], ["N", "A", "C"])
+
+    def test_detecta_windows_8_pelo_numero_de_compilacao(self):
+        self.assertTrue(eh_windows_8("nt", 9200))
+        self.assertTrue(eh_windows_8("nt", 9600))
+        self.assertFalse(eh_windows_8("nt", 19045))
+        self.assertFalse(eh_windows_8("posix", 9200))
+
+    def test_compatibilidade_visual_do_windows_8_fixa_dpi_e_tema_claro(self):
+        with patch("main.eh_windows_8", return_value=True), \
+             patch("main.ctk.deactivate_automatic_dpi_awareness") as desativar_dpi, \
+             patch("main.ctk.set_widget_scaling") as escalar_widgets, \
+             patch("main.ctk.set_window_scaling") as escalar_janela, \
+             patch("main.ctk.set_appearance_mode") as tema:
+            self.assertTrue(configurar_compatibilidade_visual())
+
+        desativar_dpi.assert_called_once_with()
+        escalar_widgets.assert_called_once_with(1.0)
+        escalar_janela.assert_called_once_with(1.0)
+        tema.assert_called_once_with("Light")
 
     def test_ajuste_respeita_regra_dos_dez_por_cento(self):
         tempos = np.array([0.5, 1.0, 2.0, 4.0, 8.0])
@@ -50,9 +82,44 @@ class CalcularSaturacaoTests(unittest.TestCase):
             calcular_saturacao([-1, 1, 2, 3], [0.1, 0.2, 0.22, 0.23])
 
     def test_converte_milimetros_para_polegadas_e_vice_versa(self):
-        polegadas = converter_flecha(25.4, "mm", "in")
+        polegadas = converter_arco(25.4, "mm", "in")
         self.assertAlmostEqual(polegadas, 1.0)
-        self.assertAlmostEqual(converter_flecha(polegadas, "in", "mm"), 25.4)
+        self.assertAlmostEqual(converter_arco(polegadas, "in", "mm"), 25.4)
+
+    def test_mesma_curva_em_mm_e_in_produz_resultados_equivalentes(self):
+        tempos = np.array([0.5, 1, 2, 4, 8, 16])
+        alturas_mm = np.array([0.03143, 0.05923, 0.10681, 0.17557, 0.24837, 0.29112])
+        alturas_in = np.array([converter_arco(altura, "mm", "in") for altura in alturas_mm])
+
+        resultado_mm = calcular_saturacao(tempos, alturas_mm)
+        resultado_in = calcular_saturacao(tempos, alturas_in)
+
+        self.assertAlmostEqual(resultado_mm["t_sat"], resultado_in["t_sat"], places=8)
+        self.assertAlmostEqual(
+            resultado_mm["h_sat"],
+            converter_arco(resultado_in["h_sat"], "in", "mm"),
+            places=10,
+        )
+        self.assertAlmostEqual(
+            resultado_mm["h_2sat"],
+            converter_arco(resultado_in["h_2sat"], "in", "mm"),
+            places=10,
+        )
+
+    def test_escala_vertical_em_milimetros_inicia_em_zero_e_ajusta_a_precisao(self):
+        figura = Figure()
+        eixo = figura.subplots()
+
+        configurar_escala_vertical(eixo, [0.110, 0.170, 0.220, 0.240], "mm", (0.140, 0.180))
+
+        limite_inferior, limite_superior = eixo.get_ylim()
+        self.assertEqual(limite_inferior, 0)
+        self.assertGreater(limite_superior, 0.240)
+        self.assertEqual(eixo.yaxis.get_major_formatter()(0.11, 0), "0.11")
+
+        eixo = figura.subplots()
+        configurar_escala_vertical(eixo, [0.014, 0.016, 0.018], "mm")
+        self.assertEqual(eixo.yaxis.get_major_formatter()(0.014, 0), "0.014")
 
     def test_compensa_desvio_positivo_subtraindo_da_medicao(self):
         alturas = compensar_desvio_lamina([0.110, 0.170, 0.220, 0.240], 0.005)
@@ -72,7 +139,7 @@ class CalcularSaturacaoTests(unittest.TestCase):
         np.testing.assert_allclose(resultado["h_data_compensada"], [0.105, 0.166, 0.217, 0.238, 0.244])
         np.testing.assert_allclose(resultado["desvios_lamina"], [0.005, 0.004, 0.003, 0.002, 0.001])
 
-    def test_rejeita_compensacao_que_torna_flecha_negativa(self):
+    def test_rejeita_compensacao_que_torna_altura_do_arco_negativa(self):
         with self.assertRaisesRegex(ValueError, "compensada negativa"):
             calcular_saturacao([1, 2, 3, 4], [0.1, 0.2, 0.22, 0.23], 0.11)
 
@@ -105,6 +172,32 @@ class CalcularSaturacaoTests(unittest.TestCase):
         self.assertIn("Tempo de saturação (T)", relatorio)
         self.assertIn("data:image/png;base64,YWJj", relatorio)
 
+    def test_relatorio_html_embute_logo_da_empresa_no_cabecalho(self):
+        resultado = calcular_saturacao(
+            [0.5, 1.0, 2.0, 4.0, 8.0],
+            [0.110, 0.170, 0.220, 0.240, 0.245],
+        )
+        with TemporaryDirectory() as diretorio:
+            logo = Path(diretorio) / "empresa.png"
+            logo.write_bytes(b"logo de teste")
+            relatorio = montar_relatorio_html({}, "SAE J443", {}, resultado, "mm", "s", "YWJj", logo)
+
+        self.assertIn('class="logo-empresa"', relatorio)
+        self.assertIn("data:image/png;base64,bG9nbyBkZSB0ZXN0ZQ==", relatorio)
+
+    def test_relatorio_html_delimita_cabecalho_e_quebra_antes_dos_resultados(self):
+        resultado = calcular_saturacao(
+            [0.5, 1.0, 2.0, 4.0, 8.0],
+            [0.110, 0.170, 0.220, 0.240, 0.245],
+        )
+        relatorio = montar_relatorio_html({}, "SAE J443", {}, resultado, "mm", "s", "YWJj")
+
+        self.assertIn('class="cabecalho"', relatorio)
+        self.assertIn("border: 1.5px solid #2f80c4", relatorio)
+        self.assertIn("border-right: 1px solid #b7c9da", relatorio)
+        self.assertIn('class="resultado-curva"', relatorio)
+        self.assertIn("break-before: page", relatorio)
+
     def test_relatorio_mantem_dados_de_equipamento_em_sequencia(self):
         resultado = calcular_saturacao(
             [0.5, 1.0, 2.0, 4.0, 8.0],
@@ -124,6 +217,29 @@ class CalcularSaturacaoTests(unittest.TestCase):
 
         self.assertEqual(posicoes, sorted(posicoes))
 
+    def test_extrai_faixa_de_intensidade_com_virgula_ponto_e_sufixo_almen(self):
+        self.assertEqual(extrair_faixa_intensidade("0,014-0.018A"), (0.014, 0.018))
+        self.assertIsNone(extrair_faixa_intensidade("0,014A"))
+        self.assertIsNone(extrair_faixa_intensidade("0.018-0.014A"))
+
+    def test_destaque_de_intensidade_cria_area_e_duas_linhas_sem_alterar_grafico(self):
+        figura = Figure()
+        eixo = figura.subplots()
+        eixo.set_ylim(0, 0.015)
+
+        legenda = "Faixa de intensidade de peening: 0,014-0.018A mm"
+        destaque = destacar_faixa_intensidade(eixo, "0,014-0.018A", "mm", "mm", legenda)
+
+        self.assertEqual(len(eixo.patches), 1)
+        self.assertEqual(len(eixo.lines), 2)
+        self.assertGreater(eixo.get_ylim()[1], 0.018)
+        self.assertEqual(eixo.patches[0].get_label(), legenda)
+
+        remover_destaque_faixa_intensidade(eixo, destaque)
+        self.assertEqual(len(eixo.patches), 0)
+        self.assertEqual(len(eixo.lines), 0)
+        self.assertEqual(eixo.get_ylim(), (0.0, 0.015))
+
     def test_banco_de_pn_salva_busca_atualiza_e_remove_cadastro(self):
         with TemporaryDirectory() as diretorio:
             banco = BancoDadosPN(Path(diretorio) / "cadastros.db")
@@ -131,7 +247,7 @@ class CalcularSaturacaoTests(unittest.TestCase):
                 {
                     "Peça / PN": "PN-0042",
                     "SN da peça": "SN-001",
-                    "Referência": "REF-19",
+                    "Referencia-CMM": "REF-19",
                     "Equipamento": "Turbina 1",
                     "Bico": "8",
                     "Unidade de Bico": "mm",
@@ -145,22 +261,22 @@ class CalcularSaturacaoTests(unittest.TestCase):
             self.assertEqual(banco.buscar("004"), ["PN-0042"])
             self.assertEqual(banco.buscar_registros("004"), [("PN-0042", "SN-001")])
             cadastro = banco.obter("pn-0042", "sn-001")
-            self.assertEqual(cadastro["Referência"], "REF-19")
+            self.assertEqual(cadastro["Referencia-CMM"], "REF-19")
             self.assertEqual(cadastro["Unidade de Bico"], "mm")
             self.assertEqual(cadastro["Unidade de Injetor"], "in")
             self.assertEqual(cadastro["Unidade de Pressão"], "bar")
 
             banco.salvar({**cadastro, "Pressão": "5.5"})
-            banco.salvar({**cadastro, "SN da peça": "SN-002", "Referência": "REF-20", "Pressão": "6"})
+            banco.salvar({**cadastro, "SN da peça": "SN-002", "Referencia-CMM": "REF-20", "Pressão": "6"})
             self.assertEqual(banco.buscar("004"), ["PN-0042"])
             self.assertEqual(
                 banco.buscar_registros("004"), [("PN-0042", "SN-001"), ("PN-0042", "SN-002")]
             )
             self.assertEqual(banco.obter("PN-0042", "SN-001")["Pressão"], "5.5")
-            self.assertEqual(banco.obter("PN-0042", "SN-002")["Referência"], "REF-20")
+            self.assertEqual(banco.obter("PN-0042", "SN-002")["Referencia-CMM"], "REF-20")
             self.assertTrue(banco.remover("PN-0042", "SN-001"))
             self.assertIsNone(banco.obter("PN-0042", "SN-001"))
-            self.assertEqual(banco.obter("PN-0042", "SN-002")["Referência"], "REF-20")
+            self.assertEqual(banco.obter("PN-0042", "SN-002")["Referencia-CMM"], "REF-20")
 
     def test_banco_migra_cadastro_legado_para_serial_vazio(self):
         with TemporaryDirectory() as diretorio:
@@ -179,10 +295,22 @@ class CalcularSaturacaoTests(unittest.TestCase):
                 conexao.close()
 
             banco = BancoDadosPN(caminho)
-            self.assertEqual(banco.obter("PN-LEGADO")["Referência"], "DWG-0")
+            self.assertEqual(banco.obter("PN-LEGADO")["Referencia-CMM"], "DWG-0")
             banco.salvar({"Peça / PN": "PN-LEGADO", "SN da peça": "SN-001", "Desenho": "DWG-1"})
+            banco.salvar({"Peça / PN": "PN-REFERENCIA", "Referência": "REF-LEG"})
             self.assertEqual(banco.buscar_registros("LEGADO"), [("PN-LEGADO", ""), ("PN-LEGADO", "SN-001")])
-            self.assertEqual(banco.obter("PN-LEGADO", "SN-001")["Referência"], "DWG-1")
+            self.assertEqual(banco.obter("PN-LEGADO", "SN-001")["Referencia-CMM"], "DWG-1")
+            self.assertEqual(banco.obter("PN-REFERENCIA")["Referencia-CMM"], "REF-LEG")
+
+    def test_banco_retorna_a_ultima_curva_salva(self):
+        with TemporaryDirectory() as diretorio:
+            banco = BancoDadosPN(Path(diretorio) / "cadastros.db")
+            curva_antiga = {"tempos": [1, 2, 3, 4], "alturas": [0.1, 0.15, 0.19, 0.21]}
+            curva_recente = {"tempos": [1, 2, 4, 8], "alturas": [0.1, 0.17, 0.22, 0.24]}
+            banco.salvar({"Pe\u00e7a / PN": "PN-ANTIGO"}, curva_antiga)
+            banco.salvar({"Pe\u00e7a / PN": "PN-RECENTE"}, curva_recente)
+
+            self.assertEqual(banco.obter_ultima_curva(), curva_recente)
 
     def test_dados_persistentes_usam_pasta_local_do_usuario_e_migram_legado(self):
         with TemporaryDirectory() as diretorio:

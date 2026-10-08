@@ -4,3 +4,11 @@ dados_pn.db
 dados_pn.db-shm
 dados_pn.db-wal
 configuracoes.json
+.merotec_attachments/
+.merotec_system_ai/
+.test-app-data/
+.test-localappdata/
+.venv/
+build/
+dist/
+compile_params.txt
