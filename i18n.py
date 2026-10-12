@@ -7,6 +7,7 @@ salvos no banco local continuem compatíveis quando a interface for alterada.
 from __future__ import annotations
 
 import json
+from datetime import datetime, timezone
 
 from app_paths import user_data_file
 
@@ -23,7 +24,7 @@ _TEXTS = {
     "PT": {
         "app_title": "Calculador de Curva de Saturação Almen",
         "measurements": "Medições da Lâmina Almen", "add_row": "+ Linha", "remove_row": "- Linha",
-        "example": "Exemplo", "settings": "Configurações", "calculate": "Calcular e Gerar Gráfico",
+        "example": "⟳ Recarregar", "settings": "Configurações", "calculate": "Calcular e Gerar Gráfico",
         "generate_report": "Gerar relatório", "print_chart": "Imprimir gráfico", "technical_tables": "Tabelas técnicas",
         "system_references": "REFERÊNCIAS NORMATIVAS DO SISTEMA", "exposure": "Exposição",
         "arc_height": "Altura do arco", "blade_deviation": "Lâmina / desvio", "no_deviation": "Sem desvio",
@@ -46,7 +47,7 @@ _TEXTS = {
         "search_pn_placeholder": "Digite todo ou parte do PN", "results": "Resultados", "search": "Buscar", "none_found": "Nenhum PN encontrado",
         "piece_identification": "Identificação e especificação", "process_data": "Dados do equipamento e processo", "value": "Valor",
         "standard": "Norma a ser atendida", "notes": "Observações", "save_update_pn": "Salvar / atualizar PN", "delete_pn": "Excluir PN",
-        "generate_html": "Gerar relatório HTML", "piece_pn": "Peça / PN", "reference": "Referência", "reference_cmm": "Referencia-CMM", "repair": "Reparo", "equipment": "Equipamento",
+        "generate_html": "Gerar relatório HTML", "piece_pn": "Peça / PN", "reference": "Referência", "reference_cmm": "Referência CMM", "repair": "Reparo", "equipment": "Equipamento",
         "no_information": "Não informado.", "report_subtitle": "Registro técnico de ensaio e parâmetros do processo", "issued": "Emitido em {date}",
         "piece_information": "Informações da peça", "standard_to_meet": "Norma a ser atendida", "process_parameters": "Parâmetros do processo",
         "curve_results": "Resultados da curva", "saturation_chart": "Gráfico de saturação", "save_report": "Salvar relatório técnico",
@@ -67,11 +68,13 @@ _TEXTS = {
     },
 }
 
-_TEXTS["PT"]["part_serial_number"] = "SN da peça (opcional)"
-_TEXTS["EN"]["part_serial_number"] = "Part serial number (optional)"
-_TEXTS["ES"]["part_serial_number"] = "N.º de serie de la pieza (opcional)"
-for _idioma in _TEXTS:
-    _TEXTS[_idioma]["reference_cmm"] = "Referencia-CMM"
+_TEXTS["PT"]["part_serial_number"] = "SN da peça"
+_TEXTS["EN"]["part_serial_number"] = "Part serial number"
+_TEXTS["ES"]["part_serial_number"] = "N.º de serie de la pieza"
+_TEXTS["EN"]["example"] = "⟳ Reload"
+_TEXTS["ES"]["example"] = "⟳ Recargar"
+_TEXTS["EN"]["reference_cmm"] = "CMM Reference"
+_TEXTS["ES"]["reference_cmm"] = "Referencia CMM"
 
 # Textos de interface que não se encaixam nas chaves curtas acima. Mantê-los
 # aqui evita que módulos de dados e telas técnicas carreguem conteúdo em um
@@ -162,6 +165,65 @@ _TEXTS["ES"].update({
     "invalid_company_logo": "Error: seleccione un archivo de imagen válido.",
 })
 
+_TEXTS["PT"].update({
+    "report_prefix": "Prefixo do número do relatório",
+    "report_prefix_help": "Exemplo: SP gera SP-001-26 e reinicia automaticamente a cada ano.",
+    "report_number": "Relatório nº",
+    "generated_reports": "Relatórios gerados",
+    "report_search_placeholder": "Buscar por número, PN ou SN",
+    "reprint_report": "Reimprimir",
+    "no_generated_reports": "Nenhum relatório gerado foi encontrado.",
+    "report_not_found": "Relatório não encontrado.",
+    "report_reprint_ready": "Relatório {number} aberto para reimpressão.",
+    "report_generated_numbered": "Relatório {number} gerado e arquivado com sucesso.",
+})
+_TEXTS["EN"].update({
+    "report_prefix": "Report number prefix",
+    "report_prefix_help": "Example: SP generates SP-001-26 and restarts automatically each year.",
+    "report_number": "Report no.",
+    "generated_reports": "Generated reports",
+    "report_search_placeholder": "Search by number, PN or serial number",
+    "reprint_report": "Reprint",
+    "no_generated_reports": "No generated reports were found.",
+    "report_not_found": "Report not found.",
+    "report_reprint_ready": "Report {number} opened for reprint.",
+    "report_generated_numbered": "Report {number} generated and archived successfully.",
+})
+_TEXTS["ES"].update({
+    "report_prefix": "Prefijo del número de informe",
+    "report_prefix_help": "Ejemplo: SP genera SP-001-26 y se reinicia automáticamente cada año.",
+    "report_number": "Informe n.º",
+    "generated_reports": "Informes generados",
+    "report_search_placeholder": "Buscar por número, PN o serie",
+    "reprint_report": "Reimprimir",
+    "no_generated_reports": "No se encontraron informes generados.",
+    "report_not_found": "Informe no encontrado.",
+    "report_reprint_ready": "Informe {number} abierto para reimpresión.",
+    "report_generated_numbered": "Informe {number} generado y archivado correctamente.",
+})
+
+_TEXTS["PT"].update({
+    "current_month_reports_hint": "Exibindo os relatórios do mês atual. Pesquise para localizar qualquer relatório anterior.",
+    "report_year": "Ano", "report_month": "Mês", "delete_report": "Excluir",
+    "delete_report_confirmation": "Excluir definitivamente o relatório {number}? Esta ação será sincronizada com os outros computadores.",
+    "report_deleted": "Relatório {number} excluído.",
+    "tooltip_delete_report": "Exclui este relatório após confirmação.",
+})
+_TEXTS["EN"].update({
+    "current_month_reports_hint": "Showing reports from the current month. Search to find any earlier report.",
+    "report_year": "Year", "report_month": "Month", "delete_report": "Delete",
+    "delete_report_confirmation": "Permanently delete report {number}? This action will be synchronized with the other computers.",
+    "report_deleted": "Report {number} deleted.",
+    "tooltip_delete_report": "Deletes this report after confirmation.",
+})
+_TEXTS["ES"].update({
+    "current_month_reports_hint": "Mostrando los informes del mes actual. Busque para localizar informes anteriores.",
+    "report_year": "Año", "report_month": "Mes", "delete_report": "Eliminar",
+    "delete_report_confirmation": "¿Eliminar definitivamente el informe {number}? Esta acción se sincronizará con los demás equipos.",
+    "report_deleted": "Informe {number} eliminado.",
+    "tooltip_delete_report": "Elimina este informe después de confirmarlo.",
+})
+
 _TECHNICAL_CONTENT = {
     "PT": {
         "analysis": ("Roteiro de análise de esferas / mídia metálica", "Use o roteiro junto com o plano de inspeção e o certificado do lote; ele não substitui ensaios nem critérios contratuais.", ("Item", "Verificação", "Finalidade"), (("Identificação", "Tipo, lote, fabricante e certificado", "Mantém a rastreabilidade da mídia usada."), ("Granulometria", "Ensaio por peneiras ASTM E11", "Confirma a distribuição e a designação SAE J444."), ("Forma", "Esfericidade, partículas quebradas e satélites", "Evita impacto irregular e acabamento inconsistente."), ("Dureza", "Faixa especificada para a mídia", "Influencia a energia transferida e a vida útil da esfera."), ("Composição", "Análise química conforme especificação", "Confirma o material, como aço fundido de alto carbono."), ("Integridade", "Trincas, porosidade, contaminação e oxidação", "Reduz risco de quebra e contaminação da peça."), ("Desempenho", "Teste mecânico / vida Ervin quando requerido", "Compara durabilidade e energia transmitida pela mídia."))),
@@ -185,6 +247,359 @@ _TECHNICAL_CONTENT = {
         "notice": "Consulta técnica: confirme siempre la revisión vigente de la norma y los límites de aceptación en el certificado del lote, plano de la pieza y procedimiento aprobado.",
     },
 }
+
+
+_TEXTS["PT"].update({
+    "strip_measurements_table": "Leituras e compensa\u00e7\u00f5es das l\u00e2minas",
+    "reading_after_exposure": "Leitura ap\u00f3s exposi\u00e7\u00e3o",
+    "compensated_value": "Valor compensado",
+    "strip_compensation_formula": "Valor compensado = leitura ap\u00f3s exposi\u00e7\u00e3o \u2212 desvio da l\u00e2mina. Desvios negativos s\u00e3o aceitos e somados corretamente ao valor compensado.",
+    "operator": "Operador",
+    "quality_representative": "Inspetor Supervisor",
+    "signatures": "Assinaturas",
+    "integrity_sha256": "Integridade do relat\u00f3rio (SHA-256)",
+    "integrity_sha256_note": "O SHA-256 \u00e9 calculado sobre o relat\u00f3rio com o pr\u00f3prio campo SHA normalizado, permitindo verificar altera\u00e7\u00f5es no documento.",
+})
+_TEXTS["EN"].update({
+    "strip_measurements_table": "Strip readings and compensations",
+    "reading_after_exposure": "Reading after exposure",
+    "compensated_value": "Compensated value",
+    "strip_compensation_formula": "Compensated value = reading after exposure \u2212 strip deviation. Negative deviations are accepted and correctly added to the compensated value.",
+    "operator": "Operator",
+    "quality_representative": "Supervisor Inspector",
+    "signatures": "Signatures",
+    "integrity_sha256": "Report integrity (SHA-256)",
+    "integrity_sha256_note": "The SHA-256 is calculated over the report with its own SHA field normalized, allowing document changes to be verified.",
+})
+_TEXTS["ES"].update({
+    "strip_measurements_table": "Lecturas y compensaciones de las l\u00e1minas",
+    "reading_after_exposure": "Lectura despu\u00e9s de la exposici\u00f3n",
+    "compensated_value": "Valor compensado",
+    "strip_compensation_formula": "Valor compensado = lectura despu\u00e9s de la exposici\u00f3n \u2212 desviaci\u00f3n de la l\u00e1mina. Se aceptan desviaciones negativas y se suman correctamente al valor compensado.",
+    "operator": "Operador",
+    "quality_representative": "Inspector Supervisor",
+    "signatures": "Firmas",
+    "integrity_sha256": "Integridad del informe (SHA-256)",
+    "integrity_sha256_note": "El SHA-256 se calcula sobre el informe con su propio campo SHA normalizado, lo que permite verificar cambios en el documento.",
+})
+
+
+_TEXTS["PT"].update({
+    "tooltip_add_row": "Adiciona uma nova linha de medição.",
+    "tooltip_remove_row": "Remove a última linha de medição.",
+    "tooltip_reload": "Restaura a última curva de saturação para análise.",
+    "tooltip_settings": "Abre as configurações de unidades, lâminas e idioma.",
+    "tooltip_calculate": "Calcula a curva de saturação e atualiza o gráfico.",
+    "tooltip_generate_report": "Abre o formulário para gerar e arquivar o relatório técnico.",
+    "tooltip_print_chart": "Envia o gráfico de saturação para a impressora padrão.",
+    "tooltip_generated_reports": "Consulta e reimprime relatórios técnicos já emitidos.",
+    "tooltip_technical_tables": "Abre tabelas de referência sobre mídia e normas técnicas.",
+    "tooltip_browse_logo": "Seleciona a imagem do logo que aparecerá nos novos relatórios.",
+    "tooltip_clear_logo": "Remove o logo selecionado dos novos relatórios.",
+    "tooltip_remove_blade": "Remove esta lâmina e seu desvio cadastrado.",
+    "tooltip_add_blade": "Adiciona uma lâmina para cadastrar seu desvio individual.",
+    "tooltip_apply_settings": "Salva e aplica as configurações informadas.",
+    "tooltip_search_pn": "Busca cadastros pelo código da peça ou PN informado.",
+    "tooltip_save_update_pn": "Salva um novo cadastro de PN ou atualiza o cadastro atual.",
+    "tooltip_delete_pn": "Exclui permanentemente o cadastro de PN informado.",
+    "tooltip_generate_html": "Gera, numera e arquiva o relatório técnico em HTML.",
+    "tooltip_reprint_report": "Abre a versão arquivada do relatório para reimpressão.",
+    "tooltip_search_reports": "Filtra a lista de relatórios emitidos.",
+})
+_TEXTS["EN"].update({
+    "tooltip_add_row": "Adds a new measurement row.",
+    "tooltip_remove_row": "Removes the last measurement row.",
+    "tooltip_reload": "Restores the last saturation curve for analysis.",
+    "tooltip_settings": "Opens unit, strip and language settings.",
+    "tooltip_calculate": "Calculates the saturation curve and updates the chart.",
+    "tooltip_generate_report": "Opens the form to generate and archive the technical report.",
+    "tooltip_print_chart": "Sends the saturation chart to the default printer.",
+    "tooltip_generated_reports": "Views and reprints issued technical reports.",
+    "tooltip_technical_tables": "Opens reference tables for media and technical standards.",
+    "tooltip_browse_logo": "Selects the logo image shown in new reports.",
+    "tooltip_clear_logo": "Removes the selected logo from new reports.",
+    "tooltip_remove_blade": "Removes this strip and its registered deviation.",
+    "tooltip_add_blade": "Adds a strip to register its individual deviation.",
+    "tooltip_apply_settings": "Saves and applies the entered settings.",
+    "tooltip_search_pn": "Searches records by the entered part code or PN.",
+    "tooltip_save_update_pn": "Saves a new PN record or updates the current record.",
+    "tooltip_delete_pn": "Permanently deletes the entered PN record.",
+    "tooltip_generate_html": "Generates, numbers and archives the HTML technical report.",
+    "tooltip_reprint_report": "Opens the archived report version for reprinting.",
+    "tooltip_search_reports": "Filters the list of issued reports.",
+})
+_TEXTS["ES"].update({
+    "tooltip_add_row": "Añade una nueva fila de medición.",
+    "tooltip_remove_row": "Elimina la última fila de medición.",
+    "tooltip_reload": "Restaura la última curva de saturación para el análisis.",
+    "tooltip_settings": "Abre la configuración de unidades, láminas e idioma.",
+    "tooltip_calculate": "Calcula la curva de saturación y actualiza el gráfico.",
+    "tooltip_generate_report": "Abre el formulario para generar y archivar el informe técnico.",
+    "tooltip_print_chart": "Envía el gráfico de saturación a la impresora predeterminada.",
+    "tooltip_generated_reports": "Consulta y reimprime informes técnicos emitidos.",
+    "tooltip_technical_tables": "Abre tablas de referencia de medios y normas técnicas.",
+    "tooltip_browse_logo": "Selecciona la imagen del logo que aparecerá en los nuevos informes.",
+    "tooltip_clear_logo": "Elimina el logo seleccionado de los nuevos informes.",
+    "tooltip_remove_blade": "Elimina esta lámina y su desviación registrada.",
+    "tooltip_add_blade": "Añade una lámina para registrar su desviación individual.",
+    "tooltip_apply_settings": "Guarda y aplica la configuración ingresada.",
+    "tooltip_search_pn": "Busca registros por el código de pieza o PN ingresado.",
+    "tooltip_save_update_pn": "Guarda un nuevo registro de PN o actualiza el registro actual.",
+    "tooltip_delete_pn": "Elimina permanentemente el registro de PN ingresado.",
+    "tooltip_generate_html": "Genera, numera y archiva el informe técnico en HTML.",
+    "tooltip_reprint_report": "Abre la versión archivada del informe para reimprimir.",
+    "tooltip_search_reports": "Filtra la lista de informes emitidos.",
+})
+
+_TEXTS["PT"].update({
+    "company_name": "ROUTER",
+    "piece_pn": "PN",
+})
+_TEXTS["EN"].update({
+    "company_name": "ROUTER",
+    "piece_pn": "PN",
+})
+_TEXTS["ES"].update({
+    "company_name": "ROUTER",
+    "piece_pn": "PN",
+})
+
+_TEXTS["PT"].update({
+    "tooltip_developer_info": "Mostra as informacoes do desenvolvedor do sistema.",
+    "tooltip_license_sync": "Mostra a licenca do sistema e a chave de sincronizacao em nuvem.",
+    "tooltip_about_system": "Mostra a versao e as informacoes gerais do sistema.",
+})
+_TEXTS["EN"].update({
+    "tooltip_developer_info": "Shows the system developer information.",
+    "tooltip_license_sync": "Shows the system license and cloud synchronization key.",
+    "tooltip_about_system": "Shows the system version and general information.",
+})
+_TEXTS["ES"].update({
+    "tooltip_developer_info": "Muestra la informacion del desarrollador del sistema.",
+    "tooltip_license_sync": "Muestra la licencia del sistema y la clave de sincronizacion en la nube.",
+    "tooltip_about_system": "Muestra la version y la informacion general del sistema.",
+})
+
+_TEXTS["PT"].update({
+    "developer_info_title": "Informações do desenvolvedor",
+    "developer_info_subtitle": "Créditos e canais oficiais de atendimento.",
+    "developer_team": "Equipe de desenvolvimento",
+    "developer_agents": "Agentes",
+    "developer_label": "Desenvolvedor",
+    "email": "E-mail",
+    "website": "Site",
+    "information_copied": "Informação copiada para a área de transferência.",
+    "tooltip_copy_info": "Copiar {label}",
+    "tooltip_open_info": "Abrir {label}",
+    "close": "Fechar",
+    "tooltip_close_window": "Fechar esta janela",
+    "info_screen_coming_soon": "Esta área está preparada para receber as próximas informações do sistema.",
+    "license_sync_title": "Licença e sincronização",
+    "about_system_title": "Sobre o sistema",
+})
+_TEXTS["EN"].update({
+    "developer_info_title": "Developer information",
+    "developer_info_subtitle": "Credits and official support channels.",
+    "developer_team": "Development team",
+    "developer_agents": "Agents",
+    "developer_label": "Developer",
+    "email": "Email",
+    "website": "Website",
+    "information_copied": "Information copied to the clipboard.",
+    "tooltip_copy_info": "Copy {label}",
+    "tooltip_open_info": "Open {label}",
+    "close": "Close",
+    "tooltip_close_window": "Close this window",
+    "info_screen_coming_soon": "This area is ready to receive the system's upcoming information.",
+    "license_sync_title": "License and synchronization",
+    "about_system_title": "About the system",
+})
+_TEXTS["ES"].update({
+    "developer_info_title": "Información del desarrollador",
+    "developer_info_subtitle": "Créditos y canales oficiales de atención.",
+    "developer_team": "Equipo de desarrollo",
+    "developer_agents": "Agentes",
+    "developer_label": "Desarrollador",
+    "email": "Correo electrónico",
+    "website": "Sitio web",
+    "information_copied": "Información copiada al portapapeles.",
+    "tooltip_copy_info": "Copiar {label}",
+    "tooltip_open_info": "Abrir {label}",
+    "close": "Cerrar",
+    "tooltip_close_window": "Cerrar esta ventana",
+    "info_screen_coming_soon": "Esta área está preparada para recibir la próxima información del sistema.",
+    "license_sync_title": "Licencia y sincronización",
+    "about_system_title": "Acerca del sistema",
+})
+
+_TEXTS["PT"].update({
+    "about_system_subtitle": "Informações operacionais, rastreabilidade e uso do aplicativo.",
+    "system_product": "Produto", "system_product_value": "Curv Saturation — Curva de Saturação Almen",
+    "system_version": "Versão", "system_version_value": "1.0",
+    "system_scope": "Função principal", "system_scope_value": "Cálculo, análise e emissão de relatórios técnicos de curva de saturação.",
+    "system_sync": "Sincronização", "system_sync_value": "PNs, curvas e relatórios podem ser sincronizados entre computadores com a mesma licença ativa.",
+    "system_offline": "Operação sem internet", "system_offline_value": "O banco local continua disponível; as alterações são sincronizadas quando a conexão retornar.",
+    "system_references_info": "Referências", "system_references_info_value": "SAE J443 e SAE J2597 apoiam a análise; valide sempre o processo e a revisão contratual aplicável.",
+    "open_user_manual": "Abrir manual de uso", "tooltip_open_user_manual": "Abre o guia de operação do software.",
+    "user_manual_title": "Manual de uso", "user_manual_subtitle": "Roteiro rápido para operar o Curv Saturation.",
+    "manual_step_1_title": "Registrar as medições", "manual_step_1_text": "Informe pelo menos quatro pares de exposição e altura do arco. Se necessário, selecione a lâmina cadastrada para aplicar sua compensação.",
+    "manual_step_2_title": "Calcular e avaliar a curva", "manual_step_2_text": "Clique em Calcular e gerar gráfico. Confira T, 2T, intensidade H(T), R² e as faixas de intensidade antes de emitir um documento.",
+    "manual_step_3_title": "Cadastrar o PN e gerar o relatório", "manual_step_3_text": "Abra Gerar relatório, preencha os dados da peça e processo, salve ou atualize o PN e gere o HTML. O relatório recebe número e SHA-256 para rastreabilidade.",
+    "manual_step_4_title": "Consultar, reimprimir ou excluir", "manual_step_4_text": "Relatórios gerados exibem inicialmente apenas o mês atual. Use a busca por número, PN ou SN para localizar históricos, reimprimir a versão arquivada ou excluí-la após confirmação.",
+    "manual_step_5_title": "Sincronizar e trabalhar offline", "manual_step_5_text": "Na tela Licença e sincronização, ative a sincronização automática ou use Sincronizar dados. Sem internet, o sistema opera com o banco local e envia as alterações quando a conexão voltar.",
+})
+_TEXTS["EN"].update({
+    "about_system_subtitle": "Operational information, traceability and application use.",
+    "system_product": "Product", "system_product_value": "Curv Saturation — Almen Saturation Curve",
+    "system_version": "Version", "system_version_value": "1.0",
+    "system_scope": "Main function", "system_scope_value": "Calculation, analysis and issuance of saturation curve technical reports.",
+    "system_sync": "Synchronization", "system_sync_value": "PNs, curves and reports can be synchronized between computers with the same active license.",
+    "system_offline": "Offline operation", "system_offline_value": "The local database remains available; changes are synchronized when the connection returns.",
+    "system_references_info": "References", "system_references_info_value": "SAE J443 and SAE J2597 support the analysis; always validate the process and applicable contractual revision.",
+    "open_user_manual": "Open user manual", "tooltip_open_user_manual": "Opens the software operation guide.",
+    "user_manual_title": "User manual", "user_manual_subtitle": "Quick guide to operate Curv Saturation.",
+    "manual_step_1_title": "Enter measurements", "manual_step_1_text": "Enter at least four exposure and arc-height pairs. If required, select the registered strip to apply its compensation.",
+    "manual_step_2_title": "Calculate and review the curve", "manual_step_2_text": "Click Calculate and generate chart. Review T, 2T, H(T) intensity, R² and intensity ranges before issuing a document.",
+    "manual_step_3_title": "Register the PN and generate the report", "manual_step_3_text": "Open Generate report, enter part and process data, save or update the PN, and generate the HTML. The report receives a number and SHA-256 for traceability.",
+    "manual_step_4_title": "Find, reprint or delete", "manual_step_4_text": "Generated reports initially show only the current month. Search by number, PN or serial number to find history, reprint the archived version or delete it after confirmation.",
+    "manual_step_5_title": "Synchronize and work offline", "manual_step_5_text": "In License and synchronization, enable automatic synchronization or use Sync data. Without internet the system uses the local database and sends changes once connected.",
+})
+_TEXTS["ES"].update({
+    "about_system_subtitle": "Información operativa, trazabilidad y uso de la aplicación.",
+    "system_product": "Producto", "system_product_value": "Curv Saturation — Curva de Saturación Almen",
+    "system_version": "Versión", "system_version_value": "1.0",
+    "system_scope": "Función principal", "system_scope_value": "Cálculo, análisis y emisión de informes técnicos de curvas de saturación.",
+    "system_sync": "Sincronización", "system_sync_value": "Los PN, curvas e informes pueden sincronizarse entre equipos con la misma licencia activa.",
+    "system_offline": "Operación sin internet", "system_offline_value": "La base local sigue disponible; los cambios se sincronizan al volver la conexión.",
+    "system_references_info": "Referencias", "system_references_info_value": "SAE J443 y SAE J2597 apoyan el análisis; valide siempre el proceso y la revisión contractual aplicable.",
+    "open_user_manual": "Abrir manual de uso", "tooltip_open_user_manual": "Abre la guía de operación del software.",
+    "user_manual_title": "Manual de uso", "user_manual_subtitle": "Guía rápida para utilizar Curv Saturation.",
+    "manual_step_1_title": "Registrar mediciones", "manual_step_1_text": "Introduzca al menos cuatro pares de exposición y altura de arco. Si es necesario, seleccione la lámina registrada para aplicar su compensación.",
+    "manual_step_2_title": "Calcular y evaluar la curva", "manual_step_2_text": "Haga clic en Calcular y generar gráfico. Revise T, 2T, intensidad H(T), R² y los rangos de intensidad antes de emitir un documento.",
+    "manual_step_3_title": "Registrar el PN y generar el informe", "manual_step_3_text": "Abra Generar informe, complete los datos de la pieza y proceso, guarde o actualice el PN y genere el HTML. El informe recibe un número y SHA-256 para trazabilidad.",
+    "manual_step_4_title": "Consultar, reimprimir o eliminar", "manual_step_4_text": "Los informes generados muestran inicialmente solo el mes actual. Busque por número, PN o serie para localizar históricos, reimprimir la versión archivada o eliminarla tras confirmación.",
+    "manual_step_5_title": "Sincronizar y trabajar sin conexión", "manual_step_5_text": "En Licencia y sincronización, active la sincronización automática o use Sincronizar datos. Sin internet el sistema utiliza la base local y envía cambios al reconectarse.",
+})
+
+
+_TEXTS["PT"].update({
+    "license_activation_title": "Ativação do sistema",
+    "installation_key": "Chave desta instalação",
+    "copy_key": "Copiar",
+    "installation_key_copied": "Chave da instalação copiada. Envie-a ao fornecedor para gerar a ativação.",
+    "activation_key": "Chave de ativação",
+    "activation_key_placeholder": "Cole aqui a chave recebida",
+    "activate_license": "Ativar",
+    "license_pending": "Aguardando ativação. Copie a chave desta instalação para solicitar a licença.",
+    "license_active": "Licença ativa para {organization}. Validade: {expires}.",
+    "license_no_expiration": "sem expiração",
+    "license_expired": "A licença registrada está expirada. Solicite uma nova chave de ativação.",
+    "license_invalid": "A licença registrada não é válida para esta instalação.",
+    "license_activation_error": "Não foi possível ativar: {message}",
+    "tooltip_copy_installation_key": "Copiar a chave desta instalação",
+    "tooltip_activate_license": "Validar e salvar a chave de ativação",
+})
+_TEXTS["EN"].update({
+    "license_activation_title": "System activation",
+    "installation_key": "This installation key",
+    "copy_key": "Copy",
+    "installation_key_copied": "Installation key copied. Send it to the supplier to generate the activation.",
+    "activation_key": "Activation key",
+    "activation_key_placeholder": "Paste the received key here",
+    "activate_license": "Activate",
+    "license_pending": "Activation pending. Copy this installation key to request the license.",
+    "license_active": "License active for {organization}. Validity: {expires}.",
+    "license_no_expiration": "no expiration",
+    "license_expired": "The registered license has expired. Request a new activation key.",
+    "license_invalid": "The registered license is not valid for this installation.",
+    "license_activation_error": "Could not activate: {message}",
+    "tooltip_copy_installation_key": "Copy this installation key",
+    "tooltip_activate_license": "Validate and save the activation key",
+})
+_TEXTS["ES"].update({
+    "license_activation_title": "Activación del sistema",
+    "installation_key": "Clave de esta instalación",
+    "copy_key": "Copiar",
+    "installation_key_copied": "Clave de instalación copiada. Envíela al proveedor para generar la activación.",
+    "activation_key": "Clave de activación",
+    "activation_key_placeholder": "Pegue aquí la clave recibida",
+    "activate_license": "Activar",
+    "license_pending": "Activación pendiente. Copie la clave de esta instalación para solicitar la licencia.",
+    "license_active": "Licencia activa para {organization}. Validez: {expires}.",
+    "license_no_expiration": "sin vencimiento",
+    "license_expired": "La licencia registrada ha expirado. Solicite una nueva clave de activación.",
+    "license_invalid": "La licencia registrada no es válida para esta instalación.",
+    "license_activation_error": "No se pudo activar: {message}",
+    "tooltip_copy_installation_key": "Copiar la clave de esta instalación",
+    "tooltip_activate_license": "Validar y guardar la clave de activación",
+})
+
+
+_TEXTS["PT"].update({
+    "license_revoked": "A licença foi revogada pelo fornecedor. Solicite uma nova ativação.",
+    "license_suspended": "A licença está suspensa. Entre em contato com o fornecedor.",
+    "sync_license": "Sincronizar",
+    "license_syncing": "Sincronizando licença com o servidor...",
+    "license_sync_success": "Licença sincronizada com o servidor.",
+    "license_sync_mismatch": "O servidor possui uma ativação diferente para esta instalação.",
+    "license_sync_offline": "Servidor indisponível; a licença local continua válida.",
+})
+_TEXTS["EN"].update({
+    "license_revoked": "The license was revoked by the supplier. Request a new activation.",
+    "license_suspended": "The license is suspended. Contact the supplier.",
+    "sync_license": "Sync",
+    "license_syncing": "Synchronizing license with the server...",
+    "license_sync_success": "License synchronized with the server.",
+    "license_sync_mismatch": "The server has a different activation for this installation.",
+    "license_sync_offline": "Server unavailable; the local license remains valid.",
+})
+_TEXTS["ES"].update({
+    "license_revoked": "La licencia fue revocada por el proveedor. Solicite una nueva activación.",
+    "license_suspended": "La licencia está suspendida. Contacte con el proveedor.",
+    "sync_license": "Sincronizar",
+    "license_syncing": "Sincronizando la licencia con el servidor...",
+    "license_sync_success": "Licencia sincronizada con el servidor.",
+    "license_sync_mismatch": "El servidor tiene una activación diferente para esta instalación.",
+    "license_sync_offline": "Servidor no disponible; la licencia local sigue siendo válida.",
+})
+
+
+_TEXTS["PT"].update({
+    "system_data_sync_title": "Dados compartilhados da empresa",
+    "system_data_sync_description": "Sincroniza preferências, cadastros e curvas por PN, exclusões e relatórios emitidos entre os computadores com esta mesma licença.",
+    "sync_system_data": "Sincronizar dados",
+    "system_data_syncing": "Enviando e recebendo dados da empresa...",
+    "system_data_sync_success": "Dados sincronizados. {records} cadastro(s) e {reports} relatório(s) atualizados neste computador.",
+    "system_data_sync_error": "Não foi possível sincronizar os dados: {message}",
+    "system_data_sync_requires_license": "Ative e sincronize uma licença válida antes de sincronizar os dados.",
+    "automatic_sync_option": "Sincronizar automaticamente a cada {minutes} minutos",
+    "automatic_sync_enabled": "Sincronização automática ativada. A próxima tentativa ocorrerá em até {minutes} minutos.",
+    "automatic_sync_disabled": "Sincronização automática desativada neste computador.",
+})
+_TEXTS["EN"].update({
+    "system_data_sync_title": "Shared company data",
+    "system_data_sync_description": "Synchronizes preferences, PN records and curves, deletions, and issued reports between computers using this license.",
+    "sync_system_data": "Sync data",
+    "system_data_syncing": "Sending and receiving company data...",
+    "system_data_sync_success": "Data synchronized. {records} record(s) and {reports} report(s) updated on this computer.",
+    "system_data_sync_error": "Could not synchronize data: {message}",
+    "system_data_sync_requires_license": "Activate and synchronize a valid license before synchronizing data.",
+    "automatic_sync_option": "Synchronize automatically every {minutes} minutes",
+    "automatic_sync_enabled": "Automatic synchronization enabled. The next attempt will occur within {minutes} minutes.",
+    "automatic_sync_disabled": "Automatic synchronization disabled on this computer.",
+})
+_TEXTS["ES"].update({
+    "system_data_sync_title": "Datos compartidos de la empresa",
+    "system_data_sync_description": "Sincroniza preferencias, registros y curvas por PN, eliminaciones e informes emitidos entre los ordenadores con esta licencia.",
+    "sync_system_data": "Sincronizar datos",
+    "system_data_syncing": "Enviando y recibiendo datos de la empresa...",
+    "system_data_sync_success": "Datos sincronizados. {records} registro(s) y {reports} informe(s) actualizados en este ordenador.",
+    "system_data_sync_error": "No se pudieron sincronizar los datos: {message}",
+    "system_data_sync_requires_license": "Active y sincronice una licencia válida antes de sincronizar los datos.",
+    "automatic_sync_option": "Sincronizar automáticamente cada {minutes} minutos",
+    "automatic_sync_enabled": "Sincronización automática activada. El próximo intento ocurrirá en hasta {minutes} minutos.",
+    "automatic_sync_disabled": "Sincronización automática desactivada en este ordenador.",
+})
 
 
 def load_language() -> str:
@@ -220,6 +635,18 @@ def save_company_logo_path(caminho: str) -> None:
     _save_settings(configuracoes)
 
 
+def load_report_prefix() -> str:
+    """Retorna o prefixo configurado para a numeração anual de relatórios."""
+    prefixo = _load_settings().get("report_prefix", "REL")
+    return prefixo.strip() if isinstance(prefixo, str) and prefixo.strip() else "REL"
+
+
+def save_report_prefix(prefixo: str) -> None:
+    configuracoes = _load_settings()
+    configuracoes["report_prefix"] = str(prefixo or "").strip().upper() or "REL"
+    _save_settings(configuracoes)
+
+
 def _load_settings() -> dict:
     try:
         configuracoes = json.loads(_SETTINGS_FILE.read_text(encoding="utf-8"))
@@ -229,6 +656,37 @@ def _load_settings() -> dict:
 
 
 def _save_settings(configuracoes: dict) -> None:
+    configuracoes = dict(configuracoes)
+    configuracoes["cloud_updated_at"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    _SETTINGS_FILE.write_text(
+        json.dumps(configuracoes, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+
+
+def get_shared_settings() -> tuple[dict, str | None]:
+    """Retorna somente prefer\u00eancias que podem ser reutilizadas em outro PC.
+
+    Caminhos de arquivos pertencem ao computador atual e, por isso, n\u00e3o s\u00e3o
+    enviados. A licen\u00e7a fica em outro arquivo e nunca passa por esta fun\u00e7\u00e3o.
+    """
+    configuracoes = _load_settings()
+    ignored = {"company_logo_path", "cloud_updated_at"}
+    values = {key: value for key, value in configuracoes.items() if key not in ignored}
+    updated_at = configuracoes.get("cloud_updated_at")
+    return values, updated_at if isinstance(updated_at, str) else None
+
+
+def apply_shared_settings(values: dict, updated_at: str | None) -> None:
+    """Aplica prefer\u00eancias remotas sem sobrescrever caminhos locais."""
+    if not isinstance(values, dict):
+        return
+    configuracoes = _load_settings()
+    for key, value in values.items():
+        if key not in {"company_logo_path", "cloud_updated_at"}:
+            configuracoes[key] = value
+    if updated_at:
+        configuracoes["cloud_updated_at"] = updated_at
     _SETTINGS_FILE.write_text(
         json.dumps(configuracoes, ensure_ascii=False, indent=2),
         encoding="utf-8",

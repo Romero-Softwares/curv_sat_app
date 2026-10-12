@@ -39,3 +39,33 @@ python main.py
 ```powershell
 python -m unittest discover -s tests -v
 ```
+
+## Ativação de licença
+
+Em **Configurações**, copie a chave da instalação e gere a ativação no ambiente
+seguro do fornecedor. A chave privada em `licensing/issuer_private_key.json`
+não é versionada e não pode ser distribuída com o executável.
+
+```powershell
+python license_generator.py CSAT-XXXXX-XXXXX-XXXXX-XXXXX-XXXXX "Empresa cliente"
+```
+
+O gerador salva a chave em `chave_ativacao.txt`, ao lado de
+`license_generator.py`, para que ela não seja perdida quando o terminal fechar.
+Use `--output caminho\arquivo.txt` para definir outro destino.
+
+Cole a chave gravada no campo **Chave de ativação** do aplicativo. Uma ativação
+é assinada e só é aceita pela instalação cuja chave foi informada ao gerador.
+
+## Sincronização entre computadores
+
+O plano de implementação em nuvem abrange apenas a licença e os dados do
+sistema. A licença registra e consulta o estado de cada instalação. Os dados
+sincronizados serão as configurações, os cadastros de PN, as curvas salvas e o
+histórico de relatórios.
+
+Cada computador tem uma chave de instalação própria e deve receber sua própria
+ativação. Depois de ativado para a mesma organização, ele poderá recuperar os
+dados da organização na nuvem. A migração atual do Supabase cobre somente a
+licença; a sincronização de dados será adicionada com autenticação por
+organização e RLS, sem distribuir chaves administrativas no executável.

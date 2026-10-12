@@ -12,3 +12,7 @@ configuracoes.json
 build/
 dist/
 compile_params.txt
+licensing/issuer_private_key.json
+chave_ativacao.txt
+output/
+tmp/

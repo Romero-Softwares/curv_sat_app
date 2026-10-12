@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import hashlib
 import html
 import json
 import os, sys
@@ -18,6 +19,7 @@ import customtkinter as ctk
 
 from app_paths import user_data_file
 from i18n import html_language, load_language, tr
+from tooltip import add_tooltip
 def get_base_path():
     if getattr(sys, 'frozen', False):
         # Se for o .exe, o caminho é a pasta onde o .exe está
@@ -33,7 +35,6 @@ def resource_path(relative_path):
 
 CAMPO_UNIDADE_RELATORIO = {
     "Intensidade de peening": ("mm", "in"),
-    "Esfera": ("SAE (S)", "mm", "in"),
     "Dureza": ("HRC", "HV", "HB", "HS"),
     "Bico": ("mm", "in", "Nº"),
     "Injetor": ("mm", "in", "Nº"),
@@ -42,7 +43,9 @@ CAMPO_UNIDADE_RELATORIO = {
     "Pressão": ("bar", "psi", "MPa", "kgf/cm²"),
 }
 
-CAMPO_TEXTO_RELATORIO = ("Peça / PN", "SN da peça", "Referencia-CMM", "Reparo", "Equipamento")
+CAMPO_TEXTO_RELATORIO = (
+    "Router", "Peça / PN", "SN da peça", "Referencia-CMM", "Reparo", "Equipamento", "Esfera",
+)
 CAMPOS_DADOS_EQUIPAMENTO_RELATORIO = ("Equipamento", "Bico", "Injetor", "Distância", "Ângulo", "Pressão")
 _CAMPO_CHAVES = {
     "Peça / PN": "piece_pn", "SN da peça": "part_serial_number", "Referencia-CMM": "reference_cmm", "Reparo": "repair", "Equipamento": "equipment",
@@ -142,6 +145,7 @@ def remover_destaque_faixa_intensidade(eixo, destaque):
 def _migrar_campos_legados(dados):
     """Conserva valores cadastrados sob rótulos anteriores."""
     dados = dict(dados)
+    dados.pop("Ordem de Serviço", None)
     campo_atual_referencia = "Referencia-CMM"
     for campo_antigo in ("Referência", "Desenho"):
         if campo_atual_referencia not in dados and campo_antigo in dados:
@@ -157,6 +161,42 @@ def _migrar_campos_legados(dados):
         if unidade_atual not in dados and unidade_antiga in dados:
             dados[unidade_atual] = dados[unidade_antiga]
     return dados
+
+
+_SHA_PLACEHOLDER = "__RELATORIO_SHA256__"
+_CAMPO_SHA_RE = re.compile(r'(<code\s+data-report-sha="true">).*?(</code>)', re.DOTALL)
+
+
+def _garantir_campo_sha(conteudo_html):
+    """Garante um campo SHA-256 normalizável também para renderizadores legados."""
+    if _CAMPO_SHA_RE.search(conteudo_html):
+        return conteudo_html
+    bloco = (
+        '<section class="integridade-relatorio"><strong>SHA-256:</strong> '
+        f'<code data-report-sha="true">{_SHA_PLACEHOLDER}</code></section>'
+    )
+    return conteudo_html.replace("</body>", f"{bloco}</body>", 1) if "</body>" in conteudo_html else conteudo_html + bloco
+
+
+def calcular_sha256_relatorio(conteudo_html):
+    """Calcula a impressão SHA-256 ignorando somente o valor exibido do próprio SHA."""
+    conteudo_normalizado = _garantir_campo_sha(conteudo_html)
+    conteudo_normalizado = _CAMPO_SHA_RE.sub(
+        lambda correspondencia: f"{correspondencia.group(1)}{_SHA_PLACEHOLDER}{correspondencia.group(2)}",
+        conteudo_normalizado,
+        count=1,
+    )
+    return hashlib.sha256(conteudo_normalizado.encode("utf-8")).hexdigest()
+
+
+def inserir_sha256_relatorio(conteudo_html, sha256):
+    """Insere a impressão calculada no único campo reservado para a integridade."""
+    conteudo_html = _garantir_campo_sha(conteudo_html)
+    return _CAMPO_SHA_RE.sub(
+        lambda correspondencia: f"{correspondencia.group(1)}{html.escape(sha256)}{correspondencia.group(2)}",
+        conteudo_html,
+        count=1,
+    )
 
 
 class BancoDadosPN:
@@ -218,6 +258,49 @@ class BancoDadosPN:
             conexao.execute(
                 "CREATE INDEX IF NOT EXISTS idx_cadastros_pn_atualizado ON cadastros_pn(atualizado_em DESC)"
             )
+            conexao.execute(
+                """
+                CREATE TABLE IF NOT EXISTS cadastros_pn_excluidos (
+                    pn TEXT NOT NULL COLLATE NOCASE,
+                    serial_number TEXT NOT NULL COLLATE NOCASE,
+                    excluido_em TEXT NOT NULL,
+                    PRIMARY KEY (pn, serial_number)
+                )
+                """
+            )
+            conexao.execute(
+                """
+                CREATE TABLE IF NOT EXISTS relatorios_emitidos (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    numero TEXT NOT NULL UNIQUE,
+                    prefixo TEXT NOT NULL,
+                    ano INTEGER NOT NULL,
+                    sequencia INTEGER NOT NULL,
+                    emitido_em TEXT NOT NULL,
+                    pn TEXT NOT NULL DEFAULT '',
+                    serial_number TEXT NOT NULL DEFAULT '',
+                    conteudo_html TEXT NOT NULL,
+                    sha256 TEXT NOT NULL DEFAULT '',
+                    criado_em TEXT NOT NULL,
+                    UNIQUE(prefixo, ano, sequencia)
+                )
+                """
+            )
+            colunas_relatorios = conexao.execute("PRAGMA table_info(relatorios_emitidos)").fetchall()
+            if "sha256" not in {coluna["name"] for coluna in colunas_relatorios}:
+                conexao.execute("ALTER TABLE relatorios_emitidos ADD COLUMN sha256 TEXT NOT NULL DEFAULT ''")
+            conexao.execute(
+                "CREATE INDEX IF NOT EXISTS idx_relatorios_emitidos_busca "
+                "ON relatorios_emitidos(ano DESC, sequencia DESC, pn, serial_number)"
+            )
+            conexao.execute(
+                """
+                CREATE TABLE IF NOT EXISTS relatorios_emitidos_excluidos (
+                    sha256 TEXT PRIMARY KEY,
+                    excluido_em TEXT NOT NULL
+                )
+                """
+            )
 
     @staticmethod
     def _normalizar_pn(valor):
@@ -255,6 +338,9 @@ class BancoDadosPN:
                     json.dumps(curva, ensure_ascii=False) if curva is not None else None,
                     datetime.now().isoformat(timespec="seconds"),
                 ),
+            )
+            conexao.execute(
+                "DELETE FROM cadastros_pn_excluidos WHERE pn = ? AND serial_number = ?", (pn, sn)
             )
         return dados_normalizados
 
@@ -333,7 +419,308 @@ class BancoDadosPN:
         sn = self._normalizar_sn(sn)
         with self._conectar() as conexao:
             cursor = conexao.execute("DELETE FROM cadastros_pn WHERE pn = ? AND serial_number = ?", (pn, sn))
+            if cursor.rowcount:
+                conexao.execute(
+                    """
+                    INSERT INTO cadastros_pn_excluidos (pn, serial_number, excluido_em)
+                    VALUES (?, ?, ?)
+                    ON CONFLICT(pn, serial_number) DO UPDATE SET excluido_em = excluded.excluido_em
+                    """,
+                    (pn, sn, datetime.now().isoformat(timespec="seconds")),
+                )
         return cursor.rowcount > 0
+
+    def exportar_para_sincronizacao(self):
+        """Serializa apenas dados do sistema, sem copiar o arquivo SQLite entre PCs."""
+        with self._conectar() as conexao:
+            cadastros = conexao.execute(
+                "SELECT pn, serial_number, dados_json, curva_json, atualizado_em FROM cadastros_pn"
+            ).fetchall()
+            excluidos = conexao.execute(
+                "SELECT pn, serial_number, excluido_em FROM cadastros_pn_excluidos"
+            ).fetchall()
+            relatorios = conexao.execute(
+                """
+                SELECT numero, prefixo, ano, sequencia, emitido_em, pn, serial_number,
+                       conteudo_html, sha256, criado_em
+                FROM relatorios_emitidos
+                """
+            ).fetchall()
+            relatorios_excluidos = conexao.execute(
+                "SELECT sha256, excluido_em FROM relatorios_emitidos_excluidos"
+            ).fetchall()
+        records = []
+        for cadastro in cadastros:
+            try:
+                dados = json.loads(cadastro["dados_json"])
+                curva = json.loads(cadastro["curva_json"]) if cadastro["curva_json"] else None
+            except (TypeError, json.JSONDecodeError):
+                continue
+            if isinstance(dados, dict) and (curva is None or isinstance(curva, dict)):
+                records.append({
+                    "pn": cadastro["pn"], "serial_number": cadastro["serial_number"],
+                    "data": dados, "curve": curva, "updated_at": cadastro["atualizado_em"], "deleted": False,
+                })
+        records.extend({
+            "pn": row["pn"], "serial_number": row["serial_number"], "data": None,
+            "curve": None, "updated_at": row["excluido_em"], "deleted": True,
+        } for row in excluidos)
+        reports = [
+            {**dict(row), "deleted": False, "updated_at": row["criado_em"]}
+            for row in relatorios
+        ]
+        reports.extend(
+            {"sha256": row["sha256"], "deleted": True, "updated_at": row["excluido_em"]}
+            for row in relatorios_excluidos
+        )
+        return {"records": records, "reports": reports}
+
+    def importar_da_sincronizacao(self, records, reports):
+        """Mescla o estado remoto, preservando localmente a altera\u00e7\u00e3o mais recente."""
+        if not isinstance(records, list) or not isinstance(reports, list):
+            raise ValueError("Os dados remotos do sistema s\u00e3o inv\u00e1lidos.")
+        imported_records = imported_reports = 0
+        with self._conectar() as conexao:
+            for record in records:
+                if not isinstance(record, dict):
+                    continue
+                pn = self._normalizar_pn(record.get("pn"))
+                sn = self._normalizar_sn(record.get("serial_number"))
+                updated_at = record.get("updated_at")
+                deleted = record.get("deleted", False)
+                if not pn or not isinstance(updated_at, str) or not isinstance(deleted, bool):
+                    continue
+                local = conexao.execute(
+                    "SELECT dados_json, curva_json, atualizado_em FROM cadastros_pn WHERE pn = ? AND serial_number = ?", (pn, sn)
+                ).fetchone()
+                tombstone = conexao.execute(
+                    "SELECT excluido_em FROM cadastros_pn_excluidos WHERE pn = ? AND serial_number = ?", (pn, sn)
+                ).fetchone()
+                newest_local = max(
+                    local["atualizado_em"] if local else "",
+                    tombstone["excluido_em"] if tombstone else "",
+                )
+                if newest_local > updated_at:
+                    continue
+                if deleted:
+                    changed = (
+                        local is not None
+                        or tombstone is None
+                        or tombstone["excluido_em"] != updated_at
+                    )
+                    conexao.execute("DELETE FROM cadastros_pn WHERE pn = ? AND serial_number = ?", (pn, sn))
+                    conexao.execute(
+                        """
+                        INSERT INTO cadastros_pn_excluidos (pn, serial_number, excluido_em)
+                        VALUES (?, ?, ?)
+                        ON CONFLICT(pn, serial_number) DO UPDATE SET excluido_em = excluded.excluido_em
+                        """, (pn, sn, updated_at)
+                    )
+                    if changed:
+                        imported_records += 1
+                    continue
+                dados, curva = record.get("data"), record.get("curve")
+                if not isinstance(dados, dict) or (curva is not None and not isinstance(curva, dict)):
+                    continue
+                serialized_data = json.dumps(dados, ensure_ascii=False)
+                serialized_curve = json.dumps(curva, ensure_ascii=False) if curva is not None else None
+                try:
+                    local_data = json.loads(local["dados_json"]) if local else None
+                    local_curve = json.loads(local["curva_json"]) if local and local["curva_json"] else None
+                except (TypeError, json.JSONDecodeError):
+                    local_data = local_curve = None
+                changed = (
+                    local is None
+                    or tombstone is not None
+                    or local["atualizado_em"] != updated_at
+                    or local_data != dados
+                    or local_curve != curva
+                )
+                conexao.execute(
+                    """
+                    INSERT INTO cadastros_pn (pn, serial_number, dados_json, curva_json, atualizado_em)
+                    VALUES (?, ?, ?, ?, ?)
+                    ON CONFLICT(pn, serial_number) DO UPDATE SET
+                        dados_json = excluded.dados_json, curva_json = excluded.curva_json,
+                        atualizado_em = excluded.atualizado_em
+                    """, (pn, sn, serialized_data, serialized_curve, updated_at)
+                )
+                conexao.execute("DELETE FROM cadastros_pn_excluidos WHERE pn = ? AND serial_number = ?", (pn, sn))
+                if changed:
+                    imported_records += 1
+
+            for report in reports:
+                if not isinstance(report, dict):
+                    continue
+                sha256 = report.get("sha256")
+                deleted = report.get("deleted", False)
+                updated_at = report.get("updated_at", report.get("criado_em"))
+                if not isinstance(sha256, str) or not re.fullmatch(r"[a-f0-9]{64}", sha256):
+                    continue
+                if not isinstance(deleted, bool) or not isinstance(updated_at, str):
+                    continue
+                local = conexao.execute(
+                    "SELECT id, criado_em FROM relatorios_emitidos WHERE sha256 = ?", (sha256,)
+                ).fetchone()
+                tombstone = conexao.execute(
+                    "SELECT excluido_em FROM relatorios_emitidos_excluidos WHERE sha256 = ?", (sha256,)
+                ).fetchone()
+                newest_local = max(
+                    local["criado_em"] if local else "",
+                    tombstone["excluido_em"] if tombstone else "",
+                )
+                if newest_local > updated_at:
+                    continue
+                if deleted:
+                    conexao.execute("DELETE FROM relatorios_emitidos WHERE sha256 = ?", (sha256,))
+                    conexao.execute(
+                        """
+                        INSERT INTO relatorios_emitidos_excluidos (sha256, excluido_em)
+                        VALUES (?, ?)
+                        ON CONFLICT(sha256) DO UPDATE SET excluido_em = excluded.excluido_em
+                        """,
+                        (sha256, updated_at),
+                    )
+                    imported_reports += 1
+                    continue
+                if local:
+                    continue
+                if not all(isinstance(report.get(key), str) for key in ("numero", "prefixo", "emitido_em", "conteudo_html", "criado_em")):
+                    continue
+                if not isinstance(report.get("ano"), int) or not isinstance(report.get("sequencia"), int):
+                    continue
+                numero, prefixo = report["numero"], report["prefixo"]
+                collision = conexao.execute(
+                    "SELECT id FROM relatorios_emitidos WHERE numero = ? OR (prefixo = ? AND ano = ? AND sequencia = ?)",
+                    (numero, prefixo, report["ano"], report["sequencia"]),
+                ).fetchone()
+                if collision:
+                    suffix = report["sha256"][:6].upper()
+                    numero, prefixo = f"{numero}-{suffix}", f"{prefixo}-{suffix}"
+                conexao.execute(
+                    """
+                    INSERT INTO relatorios_emitidos
+                    (numero, prefixo, ano, sequencia, emitido_em, pn, serial_number, conteudo_html, sha256, criado_em)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """, (numero, prefixo, report["ano"], report["sequencia"], report["emitido_em"],
+                           self._normalizar_pn(report.get("pn")), self._normalizar_sn(report.get("serial_number")),
+                           report["conteudo_html"], sha256, report["criado_em"])
+                )
+                conexao.execute("DELETE FROM relatorios_emitidos_excluidos WHERE sha256 = ?", (sha256,))
+                imported_reports += 1
+        return {"records": imported_records, "reports": imported_reports}
+
+    @staticmethod
+    def _normalizar_prefixo_relatorio(prefixo):
+        """Mantém o prefixo legível e seguro para identificação do relatório."""
+        prefixo = re.sub(r"[^A-Za-z0-9_-]+", "", str(prefixo or "").upper()).strip("_-")
+        return prefixo[:20] or "REL"
+
+    def emitir_relatorio(self, prefixo, pn, sn, renderizar):
+        """Reserva a sequência anual e persiste a versão imutável do relatório.
+
+        ``renderizar`` recebe o número e a data de emissão já definidos. Assim,
+        a reimpressão usa o mesmo HTML, número e horário da primeira emissão.
+        """
+        prefixo = self._normalizar_prefixo_relatorio(prefixo)
+        emitido_em = datetime.now()
+        ano = emitido_em.year
+        with self._conectar() as conexao:
+            # Evita duplicidade de sequência quando duas emissões ocorrem juntas.
+            conexao.execute("BEGIN IMMEDIATE")
+            linha = conexao.execute(
+                "SELECT COALESCE(MAX(sequencia), 0) AS ultima FROM relatorios_emitidos "
+                "WHERE prefixo = ? AND ano = ?",
+                (prefixo, ano),
+            ).fetchone()
+            sequencia = int(linha["ultima"]) + 1
+            numero = f"{prefixo}-{sequencia:03d}-{ano % 100:02d}"
+            conteudo_html = _garantir_campo_sha(renderizar(numero, emitido_em))
+            sha256 = calcular_sha256_relatorio(conteudo_html)
+            conteudo_html = inserir_sha256_relatorio(conteudo_html, sha256)
+            conexao.execute(
+                """
+                INSERT INTO relatorios_emitidos
+                (numero, prefixo, ano, sequencia, emitido_em, pn, serial_number, conteudo_html, sha256, criado_em)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    numero, prefixo, ano, sequencia, emitido_em.isoformat(timespec="minutes"),
+                    self._normalizar_pn(pn), self._normalizar_sn(sn), conteudo_html, sha256,
+                    datetime.now().isoformat(timespec="seconds"),
+                ),
+            )
+        return {"numero": numero, "emitido_em": emitido_em, "conteudo_html": conteudo_html, "sha256": sha256}
+
+    def buscar_relatorios_emitidos(self, termo="", ano=None, mes=None, limite=100):
+        """Lista relatórios emitidos para consulta e reimpressão."""
+        termo = str(termo or "").strip()
+        if ano is not None:
+            ano = int(ano)
+        if mes is not None:
+            mes = int(mes)
+            if mes not in range(1, 13):
+                raise ValueError("Mês do relatório inválido.")
+        filtros, parametros = [], []
+        if ano is not None:
+            filtros.append("ano = ?")
+            parametros.append(ano)
+        if mes is not None:
+            filtros.append("CAST(substr(emitido_em, 6, 2) AS INTEGER) = ?")
+            parametros.append(mes)
+        with self._conectar() as conexao:
+            if termo:
+                termo = termo.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+                filtros.insert(0, "(numero LIKE ? ESCAPE '\\' OR pn LIKE ? ESCAPE '\\' OR serial_number LIKE ? ESCAPE '\\')")
+                parametros[0:0] = [f"%{termo}%", f"%{termo}%", f"%{termo}%"]
+                linhas = conexao.execute(
+                    "SELECT id, numero, emitido_em, pn, serial_number FROM relatorios_emitidos "
+                    f"WHERE {' AND '.join(filtros)} ORDER BY ano DESC, sequencia DESC LIMIT ?",
+                    (*parametros, limite),
+                ).fetchall()
+            else:
+                clausula = f"WHERE {' AND '.join(filtros)}" if filtros else ""
+                linhas = conexao.execute(
+                    "SELECT id, numero, emitido_em, pn, serial_number FROM relatorios_emitidos "
+                    f"{clausula} ORDER BY ano DESC, sequencia DESC LIMIT ?",
+                    (*parametros, limite),
+                ).fetchall()
+        return [dict(linha) for linha in linhas]
+
+    def anos_relatorios_emitidos(self):
+        with self._conectar() as conexao:
+            linhas = conexao.execute(
+                "SELECT DISTINCT ano FROM relatorios_emitidos ORDER BY ano DESC"
+            ).fetchall()
+        return [int(linha["ano"]) for linha in linhas]
+
+    def remover_relatorio_emitido(self, relatorio_id):
+        """Exclui o relatório e registra a marca para sincronizá-lo entre computadores."""
+        with self._conectar() as conexao:
+            relatorio = conexao.execute(
+                "SELECT numero, sha256 FROM relatorios_emitidos WHERE id = ?", (relatorio_id,)
+            ).fetchone()
+            if relatorio is None:
+                return None
+            conexao.execute("DELETE FROM relatorios_emitidos WHERE id = ?", (relatorio_id,))
+            conexao.execute(
+                """
+                INSERT INTO relatorios_emitidos_excluidos (sha256, excluido_em)
+                VALUES (?, ?)
+                ON CONFLICT(sha256) DO UPDATE SET excluido_em = excluded.excluido_em
+                """,
+                (relatorio["sha256"], datetime.now().isoformat(timespec="seconds")),
+            )
+        return dict(relatorio)
+
+    def obter_relatorio_emitido(self, relatorio_id):
+        with self._conectar() as conexao:
+            linha = conexao.execute(
+                "SELECT id, numero, emitido_em, pn, serial_number, conteudo_html, sha256 "
+                "FROM relatorios_emitidos WHERE id = ?",
+                (relatorio_id,),
+            ).fetchone()
+        return dict(linha) if linha else None
 
 
 def _logo_empresa_data_uri(caminho_logo):
@@ -370,6 +757,11 @@ def montar_relatorio_html(
     unidade_exposicao,
     grafico_base64,
     caminho_logo=None,
+    numero_relatorio=None,
+    emitido_em=None,
+    medicoes_laminas=None,
+    assinaturas=None,
+    sha256=None,
 ):
     """Monta um relatório HTML autocontido, seguro para arquivamento e impressão."""
     def linhas_tabela(campos):
@@ -381,6 +773,26 @@ def montar_relatorio_html(
             )
         return "\n".join(linhas) or f"<tr><td colspan='2'>{tr('no_information')}</td></tr>"
 
+    def linhas_medicoes_laminas(medicoes):
+        if not medicoes:
+            return f"<tr><td colspan='6'>{html.escape(tr('no_information'))}</td></tr>"
+
+        def formatar_exposicao(valor):
+            """Exibe a exposição sem casas decimais artificiais."""
+            return format(float(valor), ".15g")
+
+        return "\n".join(
+            "<tr>"
+            f"<td>{int(medicao['indice'])}</td>"
+            f"<td>{html.escape(str(medicao['lamina']))}</td>"
+            f"<td>{formatar_exposicao(medicao['exposicao'])}</td>"
+            f"<td>{float(medicao['altura_lida']):.4f}</td>"
+            f"<td>{float(medicao['desvio']):+.4f}</td>"
+            f"<td>{float(medicao['altura_compensada']):.4f}</td>"
+            "</tr>"
+            for medicao in medicoes
+        )
+
     resultados = [
         (tr("saturation_time"), f"{resultado['t_sat']:.2f} {unidade_exposicao}"),
         (tr("intensity"), f"{resultado['h_sat']:.4f} {unidade_arco}"),
@@ -389,7 +801,7 @@ def montar_relatorio_html(
         (tr("fit"), f"{resultado['r2']:.4f}"),
         (tr("measurements"), str(len(resultado['h_data_compensada']))),
     ]
-    data_emissao = datetime.now().strftime("%d/%m/%Y %H:%M")
+    data_emissao = (emitido_em or datetime.now()).strftime("%d/%m/%Y %H:%M")
     logo_empresa = _logo_empresa_data_uri(caminho_logo)
     logo_html = (
         f'<img class="logo-empresa" src="{logo_empresa}" alt="{html.escape(tr("company_logo"))}">'
@@ -418,6 +830,18 @@ def montar_relatorio_html(
     .grafico {{ border: 1px solid #cbd5e1; box-sizing: border-box; margin-top: 8px; max-width: 100%; padding: 8px; width: 100%; }}
     .aviso {{ background: #fff8e5; border-left: 4px solid #e0a020; margin-top: 18px; padding: 10px; }}
     .resultado-curva {{ break-before: page; page-break-before: always; }}
+    .medicoes-laminas {{ break-before: page; page-break-before: always; }}
+    .medicoes-laminas th {{ width: auto; text-align: center; }}
+    .medicoes-laminas td {{ text-align: center; }}
+    .medicoes-laminas td:nth-child(2) {{ text-align: left; }}
+    .formula-compensacao {{ color: #52606d; font-size: 9pt; margin: 0 0 8px; }}
+    .assinaturas {{ margin-top: 22px; }}
+    .assinaturas-grade {{ display: flex; gap: 34px; margin-top: 30px; }}
+    .assinatura {{ flex: 1; min-width: 0; text-align: center; }}
+    .linha-assinatura {{ border-top: 1px solid #172033; margin: 0 auto 7px; width: 90%; }}
+    .integridade-relatorio {{ background: #f5f8fb; border: 1px solid #cbd5e1; font-size: 8.5pt; margin-top: 22px; padding: 8px 10px; }}
+    .integridade-relatorio code {{ display: block; font-family: Consolas, monospace; margin-top: 4px; overflow-wrap: anywhere; }}
+    .integridade-relatorio p {{ color: #52606d; margin: 5px 0 0; }}
 </style>
 </head>
 <body>
@@ -426,6 +850,7 @@ def montar_relatorio_html(
     <div class="cabecalho-conteudo">
         <h1>{tr('report_heading')}</h1>
         <p class="subtitle">{tr('report_subtitle')}</p>
+        {f'<p class="meta"><strong>{html.escape(tr("report_number"))}:</strong> {html.escape(numero_relatorio)}</p>' if numero_relatorio else ''}
         <p class="meta">{tr('issued', date=data_emissao)}</p>
     </div>
 </header>
@@ -440,6 +865,41 @@ def montar_relatorio_html(
     <table>{linhas_tabela(resultados)}</table>
     <h2>{tr('saturation_chart')}</h2>
     <img class="grafico" src="data:image/png;base64,{grafico_base64}" alt="{tr('saturation_chart')}">
+</section>
+<section class="medicoes-laminas">
+    <h2>{tr('strip_measurements_table')}</h2>
+    <p class="formula-compensacao">{tr('strip_compensation_formula')}</p>
+    <table>
+        <thead>
+            <tr>
+                <th>#</th>
+                <th>{tr('blade_id')}</th>
+                <th>{tr('exposure')} ({html.escape(unidade_exposicao)})</th>
+                <th>{tr('reading_after_exposure')} ({html.escape(unidade_arco)})</th>
+                <th>{tr('deviation')} ({html.escape(unidade_arco)})</th>
+                <th>{tr('compensated_value')} ({html.escape(unidade_arco)})</th>
+            </tr>
+        </thead>
+        <tbody>{linhas_medicoes_laminas(medicoes_laminas)}</tbody>
+    </table>
+    <section class="assinaturas">
+        <h2>{tr('signatures')}</h2>
+        <div class="assinaturas-grade">
+            <div class="assinatura">
+                <div class="linha-assinatura"></div>
+                <strong>{tr('operator')}</strong>
+            </div>
+            <div class="assinatura">
+                <div class="linha-assinatura"></div>
+                <strong>{tr('quality_representative')}</strong>
+            </div>
+        </div>
+    </section>
+    <section class="integridade-relatorio">
+        <strong>{tr('integrity_sha256')}</strong>
+        <code data-report-sha="true">{html.escape(sha256 or _SHA_PLACEHOLDER)}</code>
+        <p>{tr('integrity_sha256_note')}</p>
+    </section>
 </section>
 </body>
 </html>"""
@@ -534,21 +994,22 @@ def abrir_relatorio(app):
         destino[rotulo] = (entrada, unidade_var)
 
     campos_peca = {}
-    criar_campo_texto(area_peca, "Peça / PN", 0, 0, campos_peca)
-    criar_campo_texto(area_peca, "SN da peça", 0, 1, campos_peca)
-    criar_campo_texto(area_peca, "Referencia-CMM", 1, 0, campos_peca)
-    criar_campo_texto(area_peca, "Reparo", 1, 1, campos_peca)
+    criar_campo_texto(area_peca, "Router", 0, 0, campos_peca)
+    criar_campo_texto(area_peca, "Peça / PN", 0, 1, campos_peca)
+    criar_campo_texto(area_peca, "SN da peça", 1, 0, campos_peca)
+    criar_campo_texto(area_peca, "Referencia-CMM", 1, 1, campos_peca)
+    criar_campo_texto(area_peca, "Reparo", 2, 0, campos_peca)
+    criar_campo_texto(area_peca, "Esfera", 2, 1, campos_peca)
 
     norma_var = ctk.StringVar()
     campo_norma = ctk.CTkFrame(area_peca, fg_color="transparent")
-    campo_norma.grid(row=2, column=1, padx=(8, 0), pady=(3, 5), sticky="ew")
+    campo_norma.grid(row=4, column=0, columnspan=2, padx=0, pady=(3, 5), sticky="ew")
     campo_norma.grid_columnconfigure(0, weight=1)
     ctk.CTkLabel(campo_norma, text=tr("standard")).grid(row=0, column=0, pady=(0, 1), sticky="w")
     ctk.CTkComboBox(campo_norma, variable=norma_var, values=normas_relatorio(), height=30).grid(row=1, column=0, sticky="ew")
 
     campos_medidas_peca = {}
-    criar_campo_medida(area_peca, "Intensidade de peening", 2, 0, campos_medidas_peca)
-    criar_campo_medida(area_peca, "Esfera", 3, 0, campos_medidas_peca)
+    criar_campo_medida(area_peca, "Intensidade de peening", 3, 0, campos_medidas_peca)
     criar_campo_medida(area_peca, "Dureza", 3, 1, campos_medidas_peca)
 
     parametros_frame = ctk.CTkFrame(formularios_frame, corner_radius=10)
@@ -583,7 +1044,7 @@ def abrir_relatorio(app):
         dados_completos.update(dados or {})
         for rotulo, entrada in {**campos_peca, **campos_parametros}.items():
             entrada.delete(0, "end")
-            entrada.insert(0, dados_completos[rotulo])
+            entrada.insert(0, dados_completos.get(rotulo, ""))
         for rotulo, (entrada, unidade_var) in {**campos_medidas_peca, **campos_medidas_parametros}.items():
             entrada.delete(0, "end")
             entrada.insert(0, dados_completos[rotulo])
@@ -681,6 +1142,12 @@ def abrir_relatorio(app):
         if dados is None:
             return
 
+        try:
+            medicoes_laminas = app.obter_medicoes_laminas_para_relatorio()
+        except ValueError as err:
+            app.lbl_status.configure(text=str(err), text_color="#e74c3c")
+            return
+
         def valor_com_unidade(rotulo):
             valor = dados[rotulo]
             return f"{valor} {dados[f'Unidade de {rotulo}']}" if valor else ""
@@ -689,7 +1156,8 @@ def abrir_relatorio(app):
             "Tipo de lâmina Almen": app._nome_tipo_lamina(),
             "Unidade de exposição": f"{app._nome_tipo_exposicao()} ({app.abreviacao_exposicao})",
             "Unidade da altura do arco": app.unidade_arco,
-            **{rotulo: valor_com_unidade(rotulo) for rotulo in ("Intensidade de peening", "Esfera", "Dureza")},
+            **{rotulo: valor_com_unidade(rotulo) for rotulo in ("Intensidade de peening", "Dureza")},
+            "Esfera": dados["Esfera"],
             **{
                 rotulo: dados[rotulo] if rotulo in CAMPO_TEXTO_RELATORIO else valor_com_unidade(rotulo)
                 for rotulo in CAMPOS_DADOS_EQUIPAMENTO_RELATORIO
@@ -699,7 +1167,10 @@ def abrir_relatorio(app):
             ) or tr("none_applied"),
             "Observações": dados["Observações"],
         }
-        informacoes_peca = {rotulo: dados[rotulo] for rotulo in ("Peça / PN", "SN da peça", "Referencia-CMM", "Reparo")}
+        informacoes_peca = {
+            rotulo: dados[rotulo]
+            for rotulo in ("Router", "Peça / PN", "SN da peça", "Referencia-CMM", "Reparo")
+        }
         buffer_grafico = BytesIO()
         destaque = destacar_faixa_intensidade(
             app.ax,
@@ -716,16 +1187,6 @@ def abrir_relatorio(app):
             app.fig.savefig(buffer_grafico, format="png", dpi=180, facecolor=app.fig.get_facecolor(), bbox_inches="tight")
         finally:
             remover_destaque_faixa_intensidade(app.ax, destaque)
-        relatorio = montar_relatorio_html(
-            informacoes_peca,
-            dados["Norma"],
-            parametros,
-            app._ultimo_resultado,
-            app.unidade_arco,
-            app.abreviacao_exposicao,
-            base64.b64encode(buffer_grafico.getvalue()).decode("ascii"),
-            app.logo_empresa_path,
-        )
         caminho = filedialog.asksaveasfilename(
             parent=janela,
             title=tr("save_report"),
@@ -736,8 +1197,33 @@ def abrir_relatorio(app):
         if not caminho:
             return
         try:
-            Path(caminho).write_text(relatorio, encoding="utf-8")
-            app.lbl_status.configure(text=tr("report_generated"), text_color="#2ecc71")
+            grafico_base64 = base64.b64encode(buffer_grafico.getvalue()).decode("ascii")
+
+            def renderizar(numero_relatorio, emitido_em):
+                return montar_relatorio_html(
+                    informacoes_peca,
+                    dados["Norma"],
+                    parametros,
+                    app._ultimo_resultado,
+                    app.unidade_arco,
+                    app.abreviacao_exposicao,
+                    grafico_base64,
+                    app.logo_empresa_path,
+                    numero_relatorio,
+                    emitido_em,
+                    medicoes_laminas,
+                )
+
+            emissao = app.banco_pn.emitir_relatorio(
+                app.prefixo_relatorio,
+                dados["Peça / PN"],
+                dados["SN da peça"],
+                renderizar,
+            )
+            Path(caminho).write_text(emissao["conteudo_html"], encoding="utf-8")
+            app.lbl_status.configure(
+                text=tr("report_generated_numbered", number=emissao["numero"]), text_color="#2ecc71"
+            )
             janela.destroy()
             if os.name == "nt":
                 os.startfile(str(caminho))
@@ -748,6 +1234,7 @@ def abrir_relatorio(app):
     botao_buscar.grid(
         row=1, column=4, padx=(0, 14), pady=(0, 12)
     )
+    add_tooltip(botao_buscar, tr("tooltip_search_pn"))
     resultado_busca.configure(command=carregar_pn)
     busca_entry.bind("<Return>", lambda _evento: atualizar_resultados())
     busca_entry.bind("<KeyRelease>", lambda _evento: atualizar_resultados())
@@ -758,15 +1245,19 @@ def abrir_relatorio(app):
     botoes_frame.grid_columnconfigure(0, weight=1)
     botoes_frame.grid_columnconfigure(1, weight=1)
     botoes_frame.grid_columnconfigure(2, weight=2)
-    ctk.CTkButton(botoes_frame, text=tr("save_update_pn"), height=40, command=salvar_atualizacao).grid(
-        row=0, column=0, padx=(0, 8), sticky="ew"
-    )
-    ctk.CTkButton(
+    save_pn_button = ctk.CTkButton(botoes_frame, text=tr("save_update_pn"), height=40, command=salvar_atualizacao)
+    save_pn_button.grid(row=0, column=0, padx=(0, 8), sticky="ew")
+    add_tooltip(save_pn_button, tr("tooltip_save_update_pn"))
+    delete_pn_button = ctk.CTkButton(
         botoes_frame, text=tr("delete_pn"), height=40, fg_color="#c0392b", hover_color="#e74c3c", command=excluir_pn
-    ).grid(row=0, column=1, padx=8, sticky="ew")
-    ctk.CTkButton(
+    )
+    delete_pn_button.grid(row=0, column=1, padx=8, sticky="ew")
+    add_tooltip(delete_pn_button, tr("tooltip_delete_pn"))
+    generate_html_button = ctk.CTkButton(
         botoes_frame, text=tr("generate_html"), height=40, fg_color="#1f6fae", hover_color="#2f80c4", command=gerar
-    ).grid(row=0, column=2, padx=(8, 0), sticky="ew")
+    )
+    generate_html_button.grid(row=0, column=2, padx=(8, 0), sticky="ew")
+    add_tooltip(generate_html_button, tr("tooltip_generate_html"))
 
     modo_compacto = None
 
@@ -800,4 +1291,142 @@ def abrir_relatorio(app):
             botao_buscar.grid_configure(row=1, column=4, padx=(0, 14), pady=(0, 12))
 
     janela.bind("<Configure>", ajustar_layout)
-    janela.after_idle(ajustar_layout)
+
+    def inicializar_layout():
+        """Exibe o início do formulário ao abrir, sem ocultar Router e PN."""
+        ajustar_layout()
+        formularios_frame._parent_canvas.yview_moveto(0)
+
+    janela.after_idle(inicializar_layout)
+
+
+def abrir_historico_relatorios(app):
+    """Mostra as emissões arquivadas e abre a versão original para reimpressão."""
+    janela = ctk.CTkToplevel(app)
+    janela.title(tr("generated_reports"))
+    janela.geometry("860x620")
+    janela.minsize(700, 500)
+    janela.transient(app)
+    janela.grid_columnconfigure(0, weight=1)
+    janela.grid_rowconfigure(4, weight=1)
+
+    path_icon = resource_path("assets/icons/logo.ico")
+    if os.path.exists(path_icon):
+        janela.iconbitmap(path_icon)
+        janela.after(
+            300,
+            lambda: janela.iconbitmap(path_icon) if janela.winfo_exists() else None,
+        )
+
+    ctk.CTkLabel(janela, text=tr("generated_reports"), font=ctk.CTkFont(size=20, weight="bold")).grid(
+        row=0, column=0, padx=24, pady=(20, 8), sticky="w"
+    )
+    ctk.CTkLabel(
+        janela,
+        text=tr("current_month_reports_hint"),
+        text_color="#52606d",
+    ).grid(row=1, column=0, padx=24, pady=(0, 8), sticky="w")
+    filtro_frame = ctk.CTkFrame(janela, fg_color="transparent")
+    filtro_frame.grid(row=2, column=0, padx=24, pady=(4, 4), sticky="ew")
+    filtro_frame.grid_columnconfigure(4, weight=1)
+    agora = datetime.now()
+    anos = [agora.year, *[ano for ano in app.banco_pn.anos_relatorios_emitidos() if ano != agora.year]]
+    ano_var = ctk.StringVar(value=str(agora.year))
+    mes_var = ctk.StringVar(value=f"{agora.month:02d}")
+    meses = [f"{mes:02d}" for mes in range(1, 13)]
+    ctk.CTkLabel(filtro_frame, text=tr("report_year")).grid(row=0, column=0, padx=(0, 6), sticky="w")
+    ano_menu = ctk.CTkOptionMenu(filtro_frame, variable=ano_var, values=[str(ano) for ano in anos], width=100)
+    ano_menu.grid(row=0, column=1, padx=(0, 14), sticky="w")
+    ctk.CTkLabel(filtro_frame, text=tr("report_month")).grid(row=0, column=2, padx=(0, 6), sticky="w")
+    mes_menu = ctk.CTkOptionMenu(filtro_frame, variable=mes_var, values=meses, width=90)
+    mes_menu.grid(row=0, column=3, padx=(0, 12), sticky="w")
+    busca_frame = ctk.CTkFrame(janela, fg_color="transparent")
+    busca_frame.grid(row=3, column=0, padx=24, pady=(4, 8), sticky="ew")
+    busca_frame.grid_columnconfigure(0, weight=1)
+    busca_entry = ctk.CTkEntry(busca_frame, placeholder_text=tr("report_search_placeholder"))
+    busca_entry.grid(row=0, column=0, padx=(0, 8), sticky="ew")
+    lista = ctk.CTkScrollableFrame(janela, corner_radius=10)
+    lista.grid(row=4, column=0, padx=24, pady=(0, 20), sticky="nsew")
+    lista.grid_columnconfigure(0, weight=1)
+
+    def reimprimir(relatorio_id):
+        relatorio = app.banco_pn.obter_relatorio_emitido(relatorio_id)
+        if not relatorio:
+            app.lbl_status.configure(text=tr("report_not_found"), text_color="#e74c3c")
+            return
+        try:
+            destino = user_data_file(f"reimpressao_{relatorio_id}.html")
+            destino.write_text(relatorio["conteudo_html"], encoding="utf-8")
+            app.lbl_status.configure(
+                text=tr("report_reprint_ready", number=relatorio["numero"]), text_color="#2ecc71"
+            )
+            if os.name == "nt":
+                os.startfile(str(destino))
+        except OSError as err:
+            app.lbl_status.configure(text=tr("save_report_error", message=err), text_color="#e74c3c")
+
+    def excluir(relatorio_id, numero):
+        if not messagebox.askyesno(
+            tr("delete_report"), tr("delete_report_confirmation", number=numero), parent=janela
+        ):
+            return
+        relatorio = app.banco_pn.remover_relatorio_emitido(relatorio_id)
+        if not relatorio:
+            app.lbl_status.configure(text=tr("report_not_found"), text_color="#e74c3c")
+            atualizar()
+            return
+        app.lbl_status.configure(text=tr("report_deleted", number=relatorio["numero"]), text_color="#2ecc71")
+        atualizar()
+
+    def filtros_ativos():
+        # A busca nominal é uma alternativa ao período atual e permite localizar
+        # imediatamente relatórios antigos por número, PN ou serial.
+        if busca_entry.get().strip():
+            return None, None
+        return int(ano_var.get()), int(mes_var.get())
+
+    def atualizar():
+        for widget in lista.winfo_children():
+            widget.destroy()
+        ano, mes = filtros_ativos()
+        relatorios = app.banco_pn.buscar_relatorios_emitidos(busca_entry.get(), ano=ano, mes=mes)
+        if not relatorios:
+            ctk.CTkLabel(lista, text=tr("no_generated_reports")).grid(row=0, column=0, padx=14, pady=18, sticky="w")
+            return
+        for indice, relatorio in enumerate(relatorios):
+            cor_destaque = "#eaf4ff" if indice % 2 == 0 else "#f5f9fd"
+            item = ctk.CTkFrame(lista, corner_radius=8, fg_color=cor_destaque)
+            item.grid(row=indice, column=0, padx=4, pady=4, sticky="ew")
+            item.grid_columnconfigure(0, weight=1)
+            detalhe = " | ".join(filter(None, [relatorio["pn"], relatorio["serial_number"]])) or tr("no_information")
+            ctk.CTkLabel(
+                item,
+                text=f"{relatorio['numero']}\n{detalhe} — {relatorio['emitido_em'].replace('T', ' ')}",
+                justify="left",
+                anchor="w",
+            ).grid(row=0, column=0, padx=12, pady=9, sticky="ew")
+            reprint_button = ctk.CTkButton(
+                item, text=tr("reprint_report"), width=130,
+                command=lambda relatorio_id=relatorio["id"]: reimprimir(relatorio_id),
+            )
+            reprint_button.grid(row=0, column=1, padx=10, pady=9)
+            add_tooltip(reprint_button, tr("tooltip_reprint_report"))
+            delete_button = ctk.CTkButton(
+                item,
+                text=tr("delete_report"),
+                width=88,
+                fg_color="#c0392b",
+                hover_color="#e74c3c",
+                command=lambda relatorio_id=relatorio["id"], numero=relatorio["numero"]: excluir(relatorio_id, numero),
+            )
+            delete_button.grid(row=0, column=2, padx=(0, 10), pady=9)
+            add_tooltip(delete_button, tr("tooltip_delete_report"))
+
+    search_button = ctk.CTkButton(busca_frame, text=tr("search"), width=105, command=atualizar)
+    search_button.grid(row=0, column=1)
+    add_tooltip(search_button, tr("tooltip_search_reports"))
+    busca_entry.bind("<Return>", lambda _evento: atualizar())
+    busca_entry.bind("<KeyRelease>", lambda _evento: atualizar())
+    ano_menu.configure(command=lambda _valor: atualizar())
+    mes_menu.configure(command=lambda _valor: atualizar())
+    atualizar()

@@ -1,6 +1,8 @@
 import unittest
 import sqlite3
+from datetime import datetime
 from pathlib import Path
+from types import SimpleNamespace
 from tempfile import TemporaryDirectory
 from unittest.mock import patch
 
@@ -9,6 +11,7 @@ from matplotlib.figure import Figure
 
 import app_paths
 from main import (
+    AlmenApp,
     TIPOS_LAMINA,
     calcular_saturacao,
     compensar_desvio_lamina,
@@ -18,7 +21,15 @@ from main import (
     eh_windows_8,
     montar_relatorio_html,
 )
-from reports import BancoDadosPN, destacar_faixa_intensidade, extrair_faixa_intensidade, remover_destaque_faixa_intensidade
+from reports import (
+    BancoDadosPN,
+    CAMPO_UNIDADE_RELATORIO,
+    calcular_sha256_relatorio,
+    criar_dados_relatorio,
+    destacar_faixa_intensidade,
+    extrair_faixa_intensidade,
+    remover_destaque_faixa_intensidade,
+)
 from technical_data import GRANULOMETRIA_ESFERAS, NORMAS_REFERENCIA
 from i18n import LANGUAGES, _TEXTS, load_language, save_language, technical_content, tr
 
@@ -33,6 +44,84 @@ class CalcularSaturacaoTests(unittest.TestCase):
 
     def test_tipos_de_lamina_exibem_apenas_siglas(self):
         self.assertEqual([tr(chave, "PT") for chave in TIPOS_LAMINA.values()], ["N", "A", "C"])
+
+    def test_router_e_esfera_sem_seletor_de_unidade(self):
+        dados = criar_dados_relatorio()
+
+        self.assertIn("Router", dados)
+        self.assertNotIn("Ordem de Serviço", dados)
+        self.assertIn("Esfera", dados)
+        self.assertNotIn("Esfera", CAMPO_UNIDADE_RELATORIO)
+        self.assertNotIn("Unidade de Esfera", dados)
+        self.assertEqual(tr("piece_pn", "PT"), "PN")
+        self.assertEqual(tr("piece_pn", "EN"), "PN")
+        self.assertEqual(tr("piece_pn", "ES"), "PN")
+        self.assertEqual(tr("reference_cmm", "PT"), "Referência CMM")
+        self.assertEqual(tr("reference_cmm", "EN"), "CMM Reference")
+        self.assertEqual(tr("reference_cmm", "ES"), "Referencia CMM")
+
+        with TemporaryDirectory() as diretorio:
+            banco = BancoDadosPN(Path(diretorio) / "cadastros.db")
+            banco.salvar({"Router": "Router 01", "Peça / PN": "PN-ROUTER", "Ordem de Serviço": "OS-2026-0042", "Esfera": "S230"})
+            cadastro = banco.obter("PN-ROUTER")
+
+        self.assertNotIn("Ordem de Serviço", cadastro)
+        self.assertEqual(cadastro["Router"], "Router 01")
+        self.assertEqual(cadastro["Esfera"], "S230")
+
+    def test_curva_salva_e_recarrega_desvios_de_lamina(self):
+        class Entrada:
+            def __init__(self, valor):
+                self.valor = str(valor)
+
+            def get(self):
+                return self.valor
+
+        class Selecao:
+            def __init__(self, valor):
+                self.valor = valor
+
+            def get(self):
+                return self.valor
+
+        app = SimpleNamespace(
+            _ultimo_resultado={"h_data_compensada": np.array([0.1011, 0.1710, 0.2211, 0.2410])},
+            _obter_dados_entradas=lambda: (
+                np.array([1.0, 2.0, 4.0, 8.0]),
+                np.array([0.1000, 0.1700, 0.2200, 0.2400]),
+                np.array([-0.0011, 0.0, -0.0011, 0.0]),
+            ),
+            rows=[
+                {"tempo": Entrada(1), "altura": Entrada(0.1), "lamina_var": Selecao("L-NEG")},
+                {"tempo": Entrada(2), "altura": Entrada(0.17), "lamina_var": Selecao("L-ZERO")},
+                {"tempo": Entrada(4), "altura": Entrada(0.22), "lamina_var": Selecao("L-NEG")},
+                {"tempo": Entrada(8), "altura": Entrada(0.24), "lamina_var": Selecao("L-ZERO")},
+            ],
+            desvios_laminas={"L-NEG": -0.0011, "L-ZERO": 0.0},
+            unidade_arco="mm",
+            tipo_lamina="A",
+            tipo_exposicao="seconds",
+        )
+
+        curva = AlmenApp.curva_atual_para_salvar(app)
+
+        self.assertEqual(curva["alturas"], [0.1, 0.17, 0.22, 0.24])
+        self.assertEqual(curva["laminas"], ["L-NEG", "L-ZERO", "L-NEG", "L-ZERO"])
+        self.assertEqual(curva["desvios_laminas"], {"L-NEG": -0.0011, "L-ZERO": 0.0})
+
+        linhas_recarregadas = []
+        app_recarregado = SimpleNamespace(
+            unidade_arco="mm",
+            tipo_lamina="A",
+            tipo_exposicao="seconds",
+            desvios_laminas={},
+            _atualizar_textos_unidade=lambda: None,
+            add_row=lambda tempo, altura, lamina=None: linhas_recarregadas.append((tempo, altura, lamina)),
+        )
+        self.assertTrue(AlmenApp._carregar_curva_salva(app_recarregado, curva))
+        self.assertEqual(app_recarregado.desvios_laminas, curva["desvios_laminas"])
+        self.assertEqual(linhas_recarregadas[0], (1.0, 0.1, "L-NEG"))
+        self.assertEqual(linhas_recarregadas[1], (2.0, 0.17, "L-ZERO"))
 
     def test_detecta_windows_8_pelo_numero_de_compilacao(self):
         self.assertTrue(eh_windows_8("nt", 9200))
@@ -158,7 +247,7 @@ class CalcularSaturacaoTests(unittest.TestCase):
             [0.110, 0.170, 0.220, 0.240, 0.245],
         )
         relatorio = montar_relatorio_html(
-            {"Nome da peça": "Eixo <A>"},
+            {"Router": "Router 01", "Nome da peça": "Eixo <A>"},
             "SAE J443 e SAE J2597",
             {"Cobertura": "200%"},
             resultado,
@@ -168,9 +257,29 @@ class CalcularSaturacaoTests(unittest.TestCase):
         )
 
         self.assertIn("Eixo &lt;A&gt;", relatorio)
+        self.assertNotIn(">ROUTER<", relatorio)
+        self.assertIn("Router 01", relatorio)
+        self.assertNotIn("Ordem de Serviço", relatorio)
         self.assertIn("SAE J443 e SAE J2597", relatorio)
         self.assertIn("Tempo de saturação (T)", relatorio)
         self.assertIn("data:image/png;base64,YWJj", relatorio)
+
+    def test_relatorio_traduz_a_referencia_cmm_em_todos_os_idiomas(self):
+        resultado = calcular_saturacao(
+            [0.5, 1.0, 2.0, 4.0, 8.0],
+            [0.110, 0.170, 0.220, 0.240, 0.245],
+        )
+        informacoes = {"Referencia-CMM": "CMM-42"}
+        rotulos_esperados = {
+            "PT": "Referência CMM",
+            "EN": "CMM Reference",
+            "ES": "Referencia CMM",
+        }
+
+        for idioma, rotulo in rotulos_esperados.items():
+            save_language(idioma)
+            relatorio = montar_relatorio_html(informacoes, "SAE J443", {}, resultado, "mm", "s", "YWJj")
+            self.assertIn(f">{rotulo}</th><td>CMM-42</td>", relatorio)
 
     def test_relatorio_html_embute_logo_da_empresa_no_cabecalho(self):
         resultado = calcular_saturacao(
@@ -197,6 +306,50 @@ class CalcularSaturacaoTests(unittest.TestCase):
         self.assertIn("border-right: 1px solid #b7c9da", relatorio)
         self.assertIn('class="resultado-curva"', relatorio)
         self.assertIn("break-before: page", relatorio)
+
+    def test_relatorio_html_registra_leitura_desvio_negativo_e_compensacao(self):
+        resultado = calcular_saturacao(
+            [0.5, 1.0, 2.0, 4.0],
+            [0.1100, 0.1700, 0.2200, 0.2400],
+            [-0.0011, 0.0, 0.0, 0.0],
+        )
+        medicoes = [
+            {
+                "indice": 1,
+                "lamina": "Lamina 01",
+                "exposicao": 0.5,
+                "altura_lida": 0.1100,
+                "desvio": -0.0011,
+                "altura_compensada": 0.1111,
+            }
+        ]
+
+        relatorio = montar_relatorio_html({}, "SAE J443", {}, resultado, "mm", "s", "YWJj", medicoes_laminas=medicoes)
+
+        self.assertIn('class="medicoes-laminas"', relatorio)
+        self.assertIn("<td>0.5</td>", relatorio)
+        self.assertNotIn("<td>0.5000</td>", relatorio)
+        self.assertIn("-0.0011", relatorio)
+        self.assertIn("0.1111", relatorio)
+        self.assertIn("page-break-before: always", relatorio)
+
+    def test_relatorio_html_deixa_assinaturas_para_preenchimento_impresso(self):
+        resultado = calcular_saturacao(
+            [0.5, 1.0, 2.0, 4.0],
+            [0.1100, 0.1700, 0.2200, 0.2400],
+        )
+
+        relatorio = montar_relatorio_html(
+            {}, "SAE J443", {}, resultado, "mm", "s", "YWJj",
+            assinaturas={"Operador": "Ana Silva", "Inspetor Supervisor": "Bruno Lima"},
+        )
+
+        self.assertIn("Assinaturas", relatorio)
+        self.assertIn("Operador", relatorio)
+        self.assertIn("Inspetor Supervisor", relatorio)
+        self.assertNotIn("Ana Silva", relatorio)
+        self.assertNotIn("Bruno Lima", relatorio)
+        self.assertIn('data-report-sha="true"', relatorio)
 
     def test_relatorio_mantem_dados_de_equipamento_em_sequencia(self):
         resultado = calcular_saturacao(
@@ -311,6 +464,43 @@ class CalcularSaturacaoTests(unittest.TestCase):
             banco.salvar({"Pe\u00e7a / PN": "PN-RECENTE"}, curva_recente)
 
             self.assertEqual(banco.obter_ultima_curva(), curva_recente)
+
+    def test_emissao_de_relatorio_sequencia_por_prefixo_ano_e_preserva_reimpressao(self):
+        with TemporaryDirectory() as diretorio:
+            banco = BancoDadosPN(Path(diretorio) / "cadastros.db")
+
+            def renderizar(numero, emitido_em):
+                return f"<html><body>{numero}|{emitido_em:%d/%m/%Y %H:%M}</body></html>"
+
+            with patch("reports.datetime") as relogio:
+                relogio.now.return_value = datetime(2026, 8, 10, 14, 30)
+                primeiro = banco.emitir_relatorio("sp", "PN-100", "SN-7", renderizar)
+                relogio.now.return_value = datetime(2026, 8, 11, 9, 5)
+                segundo = banco.emitir_relatorio("SP", "PN-101", "", renderizar)
+                relogio.now.return_value = datetime(2027, 1, 2, 8, 0)
+                proximo_ano = banco.emitir_relatorio("SP", "PN-102", "", renderizar)
+
+            self.assertEqual(primeiro["numero"], "SP-001-26")
+            self.assertEqual(segundo["numero"], "SP-002-26")
+            self.assertEqual(proximo_ano["numero"], "SP-001-27")
+            encontrados = banco.buscar_relatorios_emitidos("PN-100")
+            self.assertEqual(len(encontrados), 1)
+            arquivado = banco.obter_relatorio_emitido(encontrados[0]["id"])
+            self.assertEqual(arquivado["numero"], primeiro["numero"])
+            self.assertEqual(arquivado["conteudo_html"], primeiro["conteudo_html"])
+
+    def test_emissao_de_relatorio_arquiva_sha256_verificavel(self):
+        with TemporaryDirectory() as diretorio:
+            banco = BancoDadosPN(Path(diretorio) / "cadastros.db")
+            emissao = banco.emitir_relatorio(
+                "SP", "PN-100", "SN-7", lambda numero, _data: f"<html><body>{numero}</body></html>"
+            )
+
+            self.assertRegex(emissao["sha256"], r"^[0-9a-f]{64}$")
+            self.assertIn(emissao["sha256"], emissao["conteudo_html"])
+            self.assertEqual(calcular_sha256_relatorio(emissao["conteudo_html"]), emissao["sha256"])
+            arquivado = banco.obter_relatorio_emitido(1)
+            self.assertEqual(arquivado["sha256"], emissao["sha256"])
 
     def test_dados_persistentes_usam_pasta_local_do_usuario_e_migram_legado(self):
         with TemporaryDirectory() as diretorio:

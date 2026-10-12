@@ -1,4 +1,4 @@
-import os, shutil, sys
+import os, shutil, sys, threading
 import tkinter as tk
 from tkinter import filedialog
 os.environ["QT_LOGGING_RULES"] = "qt.qpa.window=false"
@@ -70,6 +70,7 @@ import tempfile
 from app_paths import user_data_file
 from reports import (
     BancoDadosPN,
+    abrir_historico_relatorios,
     abrir_relatorio,
     criar_dados_relatorio,
     destacar_faixa_intensidade,
@@ -77,7 +78,23 @@ from reports import (
     montar_relatorio_html as montar_relatorio_html_modulo,
 )
 from technical_references import abrir_referencias_tecnicas
-from i18n import LANGUAGES, load_company_logo_path, load_language, save_company_logo_path, save_language, tr
+from tooltip import add_tooltip
+from info_screens import abrir_informacoes_desenvolvedor, abrir_informacoes_sistema, abrir_licenca_sincronizacao
+from license_service import (
+    AUTOMATIC_DATA_SYNC_INTERVAL_SECONDS,
+    is_automatic_data_sync_enabled,
+    sync_active_system_data,
+)
+from i18n import (
+    LANGUAGES,
+    load_company_logo_path,
+    load_language,
+    load_report_prefix,
+    save_company_logo_path,
+    save_language,
+    save_report_prefix,
+    tr,
+)
 
 # ==============================================================================
 # 3. RESTANTE DO SEU CÓDIGO ORIGINAL INTACTO
@@ -138,14 +155,13 @@ TIPOS_LAMINA = {"N": "almen_type_n", "A": "almen_type_a", "C": "almen_type_c"}
 
 CAMPO_UNIDADE_RELATORIO = {
     "Altura do arco": ("mm", "in"),
-    "Esfera": ("SAE (S)", "mm", "in"),
     "Dureza": ("HRC", "HV", "HB", "HS"),
     "Distância": ("mm", "cm", "in"),
     "Ângulo": ("°", "rad"),
     "Pressão": ("bar", "psi", "MPa", "kgf/cm²"),
 }
 
-CAMPO_TEXTO_RELATORIO = ("Peça / PN", "SN da peça", "Referencia-CMM", "Reparo", "Equipamento", "Bico", "Injetor")
+CAMPO_TEXTO_RELATORIO = ("Router", "Peça / PN", "SN da peça", "Referencia-CMM", "Reparo", "Equipamento", "Bico", "Injetor")
 CAMPOS_DADOS_EQUIPAMENTO_RELATORIO = ("Equipamento", "Bico", "Injetor", "Distância", "Ângulo", "Pressão")
 
 
@@ -366,6 +382,7 @@ class AlmenApp(ctk.CTk):
         # as lâminas que precisam de compensação na tela de configurações.
         self.desvios_laminas = {}
         self.logo_empresa_path = load_company_logo_path()
+        self.prefixo_relatorio = load_report_prefix()
         self._arquivo_impressao = None
         self._ultimo_resultado = None
         self._intensidade_destaque_exemplo = None
@@ -382,6 +399,8 @@ class AlmenApp(ctk.CTk):
         self._build_ui()
         self._load_sample_data()
         self.protocol("WM_DELETE_WINDOW", self.ao_fechar)
+        self._automatic_sync_after_id = None
+        self.agendar_sincronizacao_automatica(initial=True)
         
         caminho_icone = resource_path(relative_path="assets/icons/logo.ico")
         try:
@@ -395,6 +414,33 @@ class AlmenApp(ctk.CTk):
         print("Encerrando o aplicativo e limpando processos...")
         self.destroy()
         os._exit(0)
+
+    def agendar_sincronizacao_automatica(self, initial=False):
+        """Agenda a próxima troca de dados sem bloquear a interface."""
+        if self._automatic_sync_after_id is not None:
+            try:
+                self.after_cancel(self._automatic_sync_after_id)
+            except Exception:
+                pass
+            self._automatic_sync_after_id = None
+        if not is_automatic_data_sync_enabled():
+            return
+        delay_ms = 15000 if initial else AUTOMATIC_DATA_SYNC_INTERVAL_SECONDS * 1000
+        self._automatic_sync_after_id = self.after(delay_ms, self._sincronizar_dados_automaticamente)
+
+    def _sincronizar_dados_automaticamente(self):
+        self._automatic_sync_after_id = None
+        if not is_automatic_data_sync_enabled():
+            return
+
+        def executar():
+            sync_active_system_data()
+            try:
+                self.after(0, self.agendar_sincronizacao_automatica)
+            except Exception:
+                pass
+
+        threading.Thread(target=executar, daemon=True).start()
 
     def t(self, key, **values):
         return tr(key, self.idioma, **values)
@@ -453,32 +499,38 @@ class AlmenApp(ctk.CTk):
 
         btn_frame = ctk.CTkFrame(left_frame, fg_color="transparent")
         btn_frame.grid(row=1, column=0, padx=15, pady=5, sticky="ew")
-        ctk.CTkButton(btn_frame, text=self.t("add_row"), width=76, command=self.add_row).pack(side="left", padx=2)
-        ctk.CTkButton(
+        add_row_button = ctk.CTkButton(btn_frame, text=self.t("add_row"), width=76, command=self.add_row)
+        add_row_button.pack(side="left", padx=2)
+        add_tooltip(add_row_button, self.t("tooltip_add_row"))
+        remove_row_button = ctk.CTkButton(
             btn_frame,
             text=self.t("remove_row"),
             width=76,
             fg_color="#c0392b",
             hover_color="#e74c3c",
             command=self.remove_row,
-        ).pack(side="left", padx=2)
-        ctk.CTkButton(
+        )
+        remove_row_button.pack(side="left", padx=2)
+        add_tooltip(remove_row_button, self.t("tooltip_remove_row"))
+        reload_button = ctk.CTkButton(
             btn_frame,
             text=self.t("example"),
-            width=76,
+            width=110,
             fg_color="#7f8c8d",
             hover_color="#95a5a6",
             command=self._load_sample_data,
-        ).pack(side="left", padx=2)
-        ctk.CTkButton(btn_frame, text=self.t("settings"), width=112, command=self.abrir_configuracoes).pack(
-            side="right", padx=2
         )
+        reload_button.pack(side="left", padx=2)
+        add_tooltip(reload_button, self.t("tooltip_reload"))
+        settings_button = ctk.CTkButton(btn_frame, text=self.t("settings"), width=112, command=self.abrir_configuracoes)
+        settings_button.pack(side="right", padx=2)
+        add_tooltip(settings_button, self.t("tooltip_settings"))
 
         self.scroll_table = ctk.CTkScrollableFrame(left_frame, label_text="")
         self.scroll_table.grid(row=2, column=0, padx=15, pady=5, sticky="nsew")
         self.scroll_table.grid_columnconfigure((0, 1, 2), weight=1)
 
-        ctk.CTkButton(
+        calculate_button = ctk.CTkButton(
             left_frame,
             text=self.t("calculate"),
             font=ctk.CTkFont(size=14, weight="bold"),
@@ -486,16 +538,20 @@ class AlmenApp(ctk.CTk):
             fg_color="#27ae60",
             hover_color="#2ecc71",
             command=self.calcular_e_plotar,
-        ).grid(row=3, column=0, padx=15, pady=10, sticky="ew")
+        )
+        calculate_button.grid(row=3, column=0, padx=15, pady=10, sticky="ew")
+        add_tooltip(calculate_button, self.t("tooltip_calculate"))
 
-        ctk.CTkButton(
+        report_button = ctk.CTkButton(
             left_frame,
             text=self.t("generate_report"),
             height=34,
             fg_color="#1f6fae",
             hover_color="#2f80c4",
             command=self.abrir_relatorio,
-        ).grid(row=4, column=0, padx=15, pady=(0, 10), sticky="ew")
+        )
+        report_button.grid(row=4, column=0, padx=15, pady=(0, 10), sticky="ew")
+        add_tooltip(report_button, self.t("tooltip_generate_report"))
 
         res_frame = ctk.CTkFrame(left_frame, fg_color="#1e1e1e", corner_radius=8)
         res_frame.grid(row=5, column=0, padx=15, pady=(0, 10), sticky="ew")
@@ -536,6 +592,7 @@ class AlmenApp(ctk.CTk):
             command=self.imprimir_grafico,
         )
         self.print_button.place(relx=1.0, x=-14, y=14, anchor="ne")
+        add_tooltip(self.print_button, self.t("tooltip_print_chart"))
 
         referencia_frame = ctk.CTkFrame(self, corner_radius=8, fg_color="#1f344a")
         referencia_frame.grid(row=1, column=0, columnspan=2, padx=15, pady=(0, 15), sticky="ew")
@@ -560,12 +617,64 @@ class AlmenApp(ctk.CTk):
             font=ctk.CTkFont(size=10),
             text_color="#d7e4f2",
         ).grid(row=2, column=0, padx=14, pady=(2, 8), sticky="w")
-        ctk.CTkButton(
+        history_button = ctk.CTkButton(
+            referencia_frame,
+            text=self.t("generated_reports"),
+            width=150,
+            height=32,
+            fg_color="#586b7d",
+            hover_color="#435361",
+            command=self.abrir_historico_relatorios,
+        )
+        history_button.grid(row=1, column=1, rowspan=2, padx=(14, 4), pady=8, sticky="e")
+        add_tooltip(history_button, self.t("tooltip_generated_reports"))
+        technical_tables_button = ctk.CTkButton(
             referencia_frame,
             text=self.t("technical_tables"),
-            width=140,
+            width=150,
+            height=32,
             command=lambda: abrir_referencias_tecnicas(self),
-        ).grid(row=1, column=1, rowspan=2, padx=14, pady=8, sticky="e")
+        )
+        technical_tables_button.grid(row=1, column=2, rowspan=2, padx=(4, 14), pady=8, sticky="e")
+        add_tooltip(technical_tables_button, self.t("tooltip_technical_tables"))
+        info_buttons_frame = ctk.CTkFrame(referencia_frame, fg_color="transparent")
+        info_buttons_frame.grid(row=1, column=3, rowspan=2, padx=(0, 14), pady=8, sticky="e")
+        developer_info_button = ctk.CTkButton(
+            info_buttons_frame,
+            text="🛠",
+            width=34,
+            height=32,
+            font=ctk.CTkFont(size=16),
+            fg_color="#586b7d",
+            hover_color="#435361",
+            command=lambda: abrir_informacoes_desenvolvedor(self),
+        )
+        developer_info_button.pack(side="left", padx=2)
+        add_tooltip(developer_info_button, self.t("tooltip_developer_info"))
+        license_sync_button = ctk.CTkButton(
+            info_buttons_frame,
+            text="☁",
+            width=34,
+            height=32,
+            font=ctk.CTkFont(size=18),
+            fg_color="#586b7d",
+            hover_color="#435361",
+            command=lambda: abrir_licenca_sincronizacao(self),
+        )
+        license_sync_button.pack(side="left", padx=2)
+        add_tooltip(license_sync_button, self.t("tooltip_license_sync"))
+        about_system_button = ctk.CTkButton(
+            info_buttons_frame,
+            text="ⓘ",
+            width=34,
+            height=32,
+            font=ctk.CTkFont(size=18),
+            fg_color="#586b7d",
+            hover_color="#435361",
+            command=lambda: abrir_informacoes_sistema(self),
+        )
+        about_system_button.pack(side="left", padx=2)
+        add_tooltip(about_system_button, self.t("tooltip_about_system"))
         self._atualizar_textos_unidade()
 
     def _format_axes(self):
@@ -674,18 +783,53 @@ class AlmenApp(ctk.CTk):
         self._intensidade_destaque_exemplo = (
             curva.get("intensidade", ""), curva.get("unidade_intensidade", self.unidade_arco)
         )
-        for tempo, altura in zip(tempos, alturas):
-            self.add_row(tempo, altura)
+        # Curvas salvas antes do cadastro de desvios continham apenas tempos e
+        # alturas compensadas. As novas incluem a lâmina e o respectivo desvio
+        # de cada ponto, para que a recarga reproduza a análise original.
+        desvios_salvos = curva.get("desvios_laminas", {})
+        laminas_salvas = curva.get("laminas", [])
+        if not isinstance(desvios_salvos, dict):
+            desvios_salvos = {}
+        if not isinstance(laminas_salvas, (list, tuple)) or len(laminas_salvas) != len(tempos):
+            laminas_salvas = [None] * len(tempos)
+
+        desvios_validos = {}
+        for nome, valor in desvios_salvos.items():
+            try:
+                nome = str(nome).strip()
+                desvio = float(valor)
+            except (TypeError, ValueError):
+                continue
+            if nome and np.isfinite(desvio):
+                desvios_validos[nome] = desvio
+        self.desvios_laminas.update(desvios_validos)
+
+        for tempo, altura, lamina in zip(tempos, alturas, laminas_salvas):
+            nome_lamina = str(lamina).strip() if isinstance(lamina, str) else None
+            self.add_row(tempo, altura, nome_lamina if nome_lamina in desvios_validos else None)
         return True
 
     def curva_atual_para_salvar(self):
         """Cria um retrato portátil da curva calculada para reutilização como exemplo."""
         if self._ultimo_resultado is None:
             return None
-        tempos, _alturas, _desvios = self._obter_dados_entradas()
+        tempos, alturas, desvios = self._obter_dados_entradas()
+        laminas = []
+        for row in self.rows:
+            if row["tempo"].get().strip() or row["altura"].get().strip():
+                nome_lamina = row["lamina_var"].get()
+                laminas.append(nome_lamina if nome_lamina in self.desvios_laminas else None)
+
+        desvios_usados = {
+            nome: float(desvio)
+            for nome, desvio in zip(laminas, desvios)
+            if nome is not None
+        }
         return {
             "tempos": [float(valor) for valor in tempos],
-            "alturas": [float(valor) for valor in self._ultimo_resultado["h_data_compensada"]],
+            "alturas": [float(valor) for valor in alturas],
+            "laminas": laminas,
+            "desvios_laminas": desvios_usados,
             "unidade_arco": self.unidade_arco,
             "tipo_lamina": self.tipo_lamina,
             "tipo_exposicao": self.tipo_exposicao,
@@ -708,16 +852,49 @@ class AlmenApp(ctk.CTk):
                 raise ValueError(self.t("invalid_numbers", index=indice)) from err
         return np.array(tempos), np.array(alturas), np.array(desvios)
 
+    def obter_medicoes_laminas_para_relatorio(self):
+        """Cria o registro rastreável das leituras e compensações do relatório."""
+        tempos, alturas, desvios = self._obter_dados_entradas()
+        if self._ultimo_resultado is None:
+            raise ValueError(self.t("error", message="Calcule a curva antes de gerar o relatório."))
+
+        alturas_compensadas = self._ultimo_resultado["h_data_compensada"]
+        if len(alturas_compensadas) != len(alturas):
+            raise ValueError(self.t("error", message="As medições foram alteradas; calcule a curva novamente."))
+
+        laminas = []
+        for row in self.rows:
+            if row["tempo"].get().strip() or row["altura"].get().strip():
+                laminas.append(row["lamina_var"].get())
+
+        return [
+            {
+                "indice": indice,
+                "lamina": laminas[indice - 1],
+                "exposicao": tempo,
+                "altura_lida": altura,
+                "desvio": desvio,
+                "altura_compensada": altura_compensada,
+            }
+            for indice, (tempo, altura, desvio, altura_compensada) in enumerate(
+                zip(tempos, alturas, desvios, alturas_compensadas), start=1
+            )
+        ]
+
     def abrir_relatorio(self):
         """Abre a área de preenchimento e geração do relatório técnico."""
         abrir_relatorio(self)
         return
 
+    def abrir_historico_relatorios(self):
+        """Abre a consulta de relatórios emitidos para reimpressão."""
+        abrir_historico_relatorios(self)
+
     def abrir_configuracoes(self):
         janela = ctk.CTkToplevel(self)
         janela.title(self.t("settings_title"))
-        janela.geometry("1140x620")
-        janela.minsize(1140, 620)
+        janela.geometry("1140x650")
+        janela.minsize(1140, 650)
         janela.transient(self)
         janela.grab_set()
         janela.grid_columnconfigure(0, weight=1)
@@ -740,6 +917,7 @@ class AlmenApp(ctk.CTk):
         exposicao_var = ctk.StringVar(value=self._nome_tipo_exposicao())
         idioma_var = ctk.StringVar(value=LANGUAGES[self.idioma])
         logo_var = ctk.StringVar(value=self.logo_empresa_path)
+        prefixo_var = ctk.StringVar(value=self.prefixo_relatorio)
 
         painel_esquerdo = ctk.CTkFrame(janela, corner_radius=10)
         painel_esquerdo.grid(row=1, column=0, padx=(24, 8), pady=(0, 16), sticky="nsew")
@@ -764,8 +942,17 @@ class AlmenApp(ctk.CTk):
             painel_esquerdo, 2, 1, self.t("exposure_unit"), exposicao_var, [self.t(item[1]) for item in UNIDADES_EXPOSICAO.values()]
         )
 
+        prefixo_frame = ctk.CTkFrame(painel_esquerdo, fg_color="transparent")
+        prefixo_frame.grid(row=5, column=0, columnspan=2, padx=16, pady=(10, 0), sticky="ew")
+        prefixo_frame.grid_columnconfigure(0, weight=1)
+        ctk.CTkLabel(prefixo_frame, text=self.t("report_prefix")).grid(row=0, column=0, sticky="w")
+        ctk.CTkEntry(prefixo_frame, textvariable=prefixo_var, width=190).grid(row=1, column=0, pady=(2, 1), sticky="w")
+        ctk.CTkLabel(
+            prefixo_frame, text=self.t("report_prefix_help"), justify="left", wraplength=410, text_color="#4a5568"
+        ).grid(row=2, column=0, pady=(0, 2), sticky="w")
+
         logo_frame = ctk.CTkFrame(painel_esquerdo, fg_color="transparent")
-        logo_frame.grid(row=5, column=0, columnspan=2, padx=16, pady=(10, 0), sticky="ew")
+        logo_frame.grid(row=7, column=0, columnspan=2, padx=16, pady=(6, 0), sticky="ew")
         logo_frame.grid_columnconfigure(0, weight=1)
         ctk.CTkLabel(logo_frame, text=self.t("company_logo")).grid(row=0, column=0, sticky="w")
         ctk.CTkEntry(logo_frame, textvariable=logo_var, state="readonly").grid(
@@ -784,17 +971,19 @@ class AlmenApp(ctk.CTk):
             if caminho:
                 logo_var.set(caminho)
 
-        ctk.CTkButton(logo_frame, text=self.t("browse_image"), width=100, command=selecionar_logo).grid(
-            row=1, column=1, padx=(0, 6), pady=(2, 4)
-        )
-        ctk.CTkButton(
+        browse_logo_button = ctk.CTkButton(logo_frame, text=self.t("browse_image"), width=100, command=selecionar_logo)
+        browse_logo_button.grid(row=1, column=1, padx=(0, 6), pady=(2, 4))
+        add_tooltip(browse_logo_button, self.t("tooltip_browse_logo"))
+        clear_logo_button = ctk.CTkButton(
             logo_frame,
             text=self.t("clear_logo"),
             width=82,
             fg_color="#6b7280",
             hover_color="#4b5563",
             command=lambda: logo_var.set(""),
-        ).grid(row=1, column=2, pady=(2, 4))
+        )
+        clear_logo_button.grid(row=1, column=2, pady=(2, 4))
+        add_tooltip(clear_logo_button, self.t("tooltip_clear_logo"))
         ctk.CTkLabel(
             logo_frame,
             text=self.t("company_logo_help"),
@@ -802,33 +991,6 @@ class AlmenApp(ctk.CTk):
             wraplength=420,
             text_color="#4a5568",
         ).grid(row=2, column=0, columnspan=3, pady=(0, 4), sticky="w")
-
-        normas_frame = ctk.CTkFrame(painel_esquerdo, fg_color="#1f344a", corner_radius=8)
-        # Os controles ocupam duas linhas visuais cada (rótulo + seletor).
-        # Manter as normas na linha 5 evita que o painel cubra a segunda
-        # linha de opções e impede que uma área vazia separe os campos.
-        normas_frame.grid(row=6, column=0, columnspan=2, padx=16, pady=(8, 16), sticky="ew")
-        normas_frame.grid_columnconfigure(0, weight=1)
-        ctk.CTkLabel(
-            normas_frame,
-            text=self.t("registered_references"),
-            font=ctk.CTkFont(size=14, weight="bold"),
-            text_color="#ffffff",
-        ).grid(row=0, column=0, padx=14, pady=(12, 4), sticky="w")
-        ctk.CTkLabel(
-            normas_frame,
-            text=self.t("references_sae"),
-            justify="left",
-            wraplength=390,
-            text_color="#ffffff",
-        ).grid(row=1, column=0, padx=14, pady=(0, 6), sticky="w")
-        ctk.CTkLabel(
-            normas_frame,
-            text=self.t("normative_notice"),
-            justify="left",
-            wraplength=390,
-            text_color="#d9ebff",
-        ).grid(row=2, column=0, padx=14, pady=(0, 12), sticky="w")
 
         painel_direito = ctk.CTkFrame(janela, corner_radius=10)
         painel_direito.grid(row=1, column=1, padx=(8, 24), pady=(0, 16), sticky="nsew")
@@ -896,6 +1058,7 @@ class AlmenApp(ctk.CTk):
                 command=lambda linha_atual=linha: remover_linha_desvio(linha_atual),
             )
             linha["widgets"].append(remover_button)
+            add_tooltip(remover_button, self.t("tooltip_remove_blade"))
             indice_widget.grid(row=indice, column=0, padx=(8, 4), pady=3)
             nome_entry.grid(row=indice, column=1, padx=4, pady=3, sticky="ew")
             valor_entry.grid(row=indice, column=2, padx=4, pady=3, sticky="ew")
@@ -905,11 +1068,13 @@ class AlmenApp(ctk.CTk):
         for nome, valor in self.desvios_laminas.items():
             adicionar_linha_desvio(nome, f"{valor:.6g}")
 
-        ctk.CTkButton(
+        add_blade_button = ctk.CTkButton(
             painel_direito,
             text=self.t("add_blade"),
             command=adicionar_linha_desvio,
-        ).grid(row=2, column=0, padx=16, pady=(0, 16), sticky="w")
+        )
+        add_blade_button.grid(row=2, column=0, padx=16, pady=(0, 16), sticky="w")
+        add_tooltip(add_blade_button, self.t("tooltip_add_blade"))
 
         def aplicar():
             novos_desvios = {}
@@ -959,6 +1124,8 @@ class AlmenApp(ctk.CTk):
             else:
                 self.logo_empresa_path = ""
             save_company_logo_path(self.logo_empresa_path)
+            self.prefixo_relatorio = prefixo_var.get().strip().upper() or "REL"
+            save_report_prefix(self.prefixo_relatorio)
             self.idioma = novo_idioma
             save_language(novo_idioma)
             self._atualizar_textos_unidade()
@@ -969,9 +1136,9 @@ class AlmenApp(ctk.CTk):
             else:
                 self.calcular_e_plotar()
 
-        ctk.CTkButton(janela, text=self.t("apply_settings"), width=190, command=aplicar).grid(
-            row=2, column=0, columnspan=2, padx=24, pady=(0, 24), sticky="e"
-        )
+        apply_button = ctk.CTkButton(janela, text=self.t("apply_settings"), width=190, command=aplicar)
+        apply_button.grid(row=2, column=0, columnspan=2, padx=24, pady=(0, 24), sticky="e")
+        add_tooltip(apply_button, self.t("tooltip_apply_settings"))
 
     @staticmethod
     def _adicionar_opcao_config(janela, linha, coluna, texto, variavel, valores):
