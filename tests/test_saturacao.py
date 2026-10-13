@@ -489,6 +489,35 @@ class CalcularSaturacaoTests(unittest.TestCase):
             self.assertEqual(arquivado["numero"], primeiro["numero"])
             self.assertEqual(arquivado["conteudo_html"], primeiro["conteudo_html"])
 
+    def test_emissao_nao_reinicia_sequencia_apos_excluir_e_reabrir_no_mesmo_ano(self):
+        with TemporaryDirectory() as diretorio:
+            caminho = Path(diretorio) / "cadastros.db"
+            banco = BancoDadosPN(caminho)
+
+            with patch("reports.datetime") as relogio:
+                relogio.now.return_value = datetime(2026, 8, 10, 14, 30)
+                primeiro = banco.emitir_relatorio("SP", "PN-100", "", lambda numero, _data: f"<html>{numero}</html>")
+                relogio.now.return_value = datetime(2026, 8, 11, 9, 5)
+                segundo = banco.emitir_relatorio("SP", "PN-101", "", lambda numero, _data: f"<html>{numero}</html>")
+
+                for relatorio in banco.buscar_relatorios_emitidos():
+                    banco.remover_relatorio_emitido(relatorio["id"])
+
+                banco_reaberto = BancoDadosPN(caminho)
+                relogio.now.return_value = datetime(2026, 8, 12, 8, 0)
+                terceiro = banco_reaberto.emitir_relatorio(
+                    "SP", "PN-102", "", lambda numero, _data: f"<html>{numero}</html>"
+                )
+                relogio.now.return_value = datetime(2027, 1, 2, 8, 0)
+                primeiro_novo_ano = banco_reaberto.emitir_relatorio(
+                    "SP", "PN-103", "", lambda numero, _data: f"<html>{numero}</html>"
+                )
+
+            self.assertEqual(primeiro["numero"], "SP-001-26")
+            self.assertEqual(segundo["numero"], "SP-002-26")
+            self.assertEqual(terceiro["numero"], "SP-003-26")
+            self.assertEqual(primeiro_novo_ano["numero"], "SP-001-27")
+
     def test_emissao_de_relatorio_arquiva_sha256_verificavel(self):
         with TemporaryDirectory() as diretorio:
             banco = BancoDadosPN(Path(diretorio) / "cadastros.db")

@@ -337,6 +337,31 @@ class BancoDadosPN:
             )
             conexao.execute(
                 """
+                CREATE TABLE IF NOT EXISTS relatorios_sequencias (
+                    prefixo TEXT NOT NULL,
+                    ano INTEGER NOT NULL,
+                    ultima_sequencia INTEGER NOT NULL,
+                    PRIMARY KEY (prefixo, ano)
+                )
+                """
+            )
+            # Migra bancos existentes sem depender dos relatórios que venham a
+            # ser excluídos depois desta atualização.
+            conexao.execute(
+                """
+                INSERT INTO relatorios_sequencias (prefixo, ano, ultima_sequencia)
+                SELECT prefixo, ano, MAX(sequencia)
+                FROM relatorios_emitidos
+                GROUP BY prefixo, ano
+                ON CONFLICT(prefixo, ano) DO UPDATE SET
+                    ultima_sequencia = MAX(
+                        relatorios_sequencias.ultima_sequencia,
+                        excluded.ultima_sequencia
+                    )
+                """
+            )
+            conexao.execute(
+                """
                 CREATE TABLE IF NOT EXISTS relatorios_emitidos_excluidos (
                     sha256 TEXT PRIMARY KEY,
                     excluido_em TEXT NOT NULL
@@ -351,6 +376,22 @@ class BancoDadosPN:
     @staticmethod
     def _normalizar_sn(valor):
         return str(valor or "").strip()
+
+    @staticmethod
+    def _registrar_sequencia_relatorio(conexao, prefixo, ano, sequencia):
+        """Mantém a maior sequência anual, inclusive para relatórios excluídos."""
+        conexao.execute(
+            """
+            INSERT INTO relatorios_sequencias (prefixo, ano, ultima_sequencia)
+            VALUES (?, ?, ?)
+            ON CONFLICT(prefixo, ano) DO UPDATE SET
+                ultima_sequencia = MAX(
+                    relatorios_sequencias.ultima_sequencia,
+                    excluded.ultima_sequencia
+                )
+            """,
+            (prefixo, ano, sequencia),
+        )
 
     def salvar(self, dados, curva=None):
         dados_normalizados = criar_dados_relatorio()
@@ -680,6 +721,9 @@ class BancoDadosPN:
                 if not isinstance(report.get("ano"), int) or not isinstance(report.get("sequencia"), int):
                     continue
                 numero, prefixo = report["numero"], report["prefixo"]
+                self._registrar_sequencia_relatorio(
+                    conexao, prefixo, report["ano"], report["sequencia"]
+                )
                 collision = conexao.execute(
                     "SELECT id FROM relatorios_emitidos WHERE numero = ? OR (prefixo = ? AND ano = ? AND sequencia = ?)",
                     (numero, prefixo, report["ano"], report["sequencia"]),
@@ -718,12 +762,28 @@ class BancoDadosPN:
         with self._conectar() as conexao:
             # Evita duplicidade de sequência quando duas emissões ocorrem juntas.
             conexao.execute("BEGIN IMMEDIATE")
+            conexao.execute(
+                """
+                INSERT INTO relatorios_sequencias (prefixo, ano, ultima_sequencia)
+                VALUES (?, ?, 0)
+                ON CONFLICT(prefixo, ano) DO NOTHING
+                """,
+                (prefixo, ano),
+            )
+            conexao.execute(
+                """
+                UPDATE relatorios_sequencias
+                SET ultima_sequencia = ultima_sequencia + 1
+                WHERE prefixo = ? AND ano = ?
+                """,
+                (prefixo, ano),
+            )
             linha = conexao.execute(
-                "SELECT COALESCE(MAX(sequencia), 0) AS ultima FROM relatorios_emitidos "
+                "SELECT ultima_sequencia AS ultima FROM relatorios_sequencias "
                 "WHERE prefixo = ? AND ano = ?",
                 (prefixo, ano),
             ).fetchone()
-            sequencia = int(linha["ultima"]) + 1
+            sequencia = int(linha["ultima"])
             numero = f"{prefixo}-{sequencia:03d}-{ano % 100:02d}"
             conteudo_html = _garantir_campo_sha(renderizar(numero, emitido_em))
             sha256 = calcular_sha256_relatorio(conteudo_html)
