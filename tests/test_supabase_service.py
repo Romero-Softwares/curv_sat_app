@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import unittest
+from urllib.error import HTTPError
 from unittest.mock import patch
 
 from supabase_service import activation_hash, sync_license, sync_system_data
@@ -90,6 +91,22 @@ class SupabaseServiceTests(unittest.TestCase):
         )
 
         self.assertEqual(remote["reports"], [])
+
+    @patch("supabase_service.urlopen")
+    def test_sync_includes_postgrest_error_message(self, mocked_urlopen):
+        mocked_urlopen.side_effect = HTTPError(
+            "https://example.test/rpc/sync", 400, "Bad Request", {},
+            __import__("io").BytesIO(b'{"message":"column \\"updated_at\\" does not exist"}'),
+        )
+
+        with self.assertRaisesRegex(RuntimeError, 'column "updated_at" does not exist'):
+            sync_system_data(
+                activation_code="CSAT-A1.exemplo.assinatura",
+                settings={},
+                settings_updated_at=None,
+                records=[],
+                reports=[],
+            )
 
 
 if __name__ == "__main__":

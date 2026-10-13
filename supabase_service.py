@@ -53,6 +53,17 @@ def _request_json(url: str, payload: dict[str, Any], timeout: float) -> Any:
         with urlopen(request, timeout=timeout) as response:
             return json.loads(response.read().decode("utf-8"))
     except HTTPError as error:
+        # O PostgREST devolve o detalhe do PostgreSQL no corpo. Preservá-lo
+        # torna problemas de esquema corrigíveis sem acesso a logs remotos.
+        try:
+            error_payload = json.loads(error.read().decode("utf-8"))
+            server_message = error_payload.get("message") if isinstance(error_payload, dict) else None
+        except (UnicodeDecodeError, json.JSONDecodeError, OSError):
+            server_message = None
+        if isinstance(server_message, str) and server_message.strip():
+            raise LicenseSyncError(
+                f"O servidor recusou a sincronização (HTTP {error.code}): {server_message.strip()}."
+            ) from error
         raise LicenseSyncError(f"O servidor recusou a sincronização (HTTP {error.code}).") from error
     except (URLError, TimeoutError, OSError) as error:
         raise LicenseSyncError("Não foi possível conectar ao servidor de licenças.") from error

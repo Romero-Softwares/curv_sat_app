@@ -10,8 +10,10 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import os
 import re
 import secrets
+import tempfile
 import threading
 from datetime import date
 from pathlib import Path
@@ -54,9 +56,20 @@ def _read_data() -> dict[str, Any]:
 
 def _write_data(data: dict[str, Any]) -> None:
     destination = _license_file()
-    temporary = destination.with_suffix(".tmp")
-    temporary.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
-    temporary.replace(destination)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    descriptor, temporary_name = tempfile.mkstemp(
+        prefix=f".{destination.stem}.", suffix=".tmp", dir=destination.parent, text=True
+    )
+    temporary = Path(temporary_name)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as file:
+            json.dump(data, file, ensure_ascii=False, indent=2)
+            file.flush()
+            os.fsync(file.fileno())
+        os.replace(temporary, destination)
+    except Exception:
+        temporary.unlink(missing_ok=True)
+        raise
 
 
 def is_automatic_data_sync_enabled() -> bool:

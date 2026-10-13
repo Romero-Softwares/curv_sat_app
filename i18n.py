@@ -7,7 +7,10 @@ salvos no banco local continuem compatíveis quando a interface for alterada.
 from __future__ import annotations
 
 import json
+import os
+import tempfile
 from datetime import datetime, timezone
+from pathlib import Path
 
 from app_paths import user_data_file
 
@@ -658,10 +661,25 @@ def _load_settings() -> dict:
 def _save_settings(configuracoes: dict) -> None:
     configuracoes = dict(configuracoes)
     configuracoes["cloud_updated_at"] = datetime.now(timezone.utc).isoformat(timespec="seconds")
-    _SETTINGS_FILE.write_text(
-        json.dumps(configuracoes, ensure_ascii=False, indent=2),
-        encoding="utf-8",
+    _write_settings(configuracoes)
+
+
+def _write_settings(configuracoes: dict) -> None:
+    """Grava as configurações sem disputar o arquivo com outra instância."""
+    _SETTINGS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    descriptor, temporary_name = tempfile.mkstemp(
+        prefix=f".{_SETTINGS_FILE.stem}.", suffix=".tmp", dir=_SETTINGS_FILE.parent, text=True
     )
+    temporary = Path(temporary_name)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as file:
+            json.dump(configuracoes, file, ensure_ascii=False, indent=2)
+            file.flush()
+            os.fsync(file.fileno())
+        os.replace(temporary, _SETTINGS_FILE)
+    except Exception:
+        temporary.unlink(missing_ok=True)
+        raise
 
 
 def get_shared_settings() -> tuple[dict, str | None]:
@@ -687,10 +705,7 @@ def apply_shared_settings(values: dict, updated_at: str | None) -> None:
             configuracoes[key] = value
     if updated_at:
         configuracoes["cloud_updated_at"] = updated_at
-    _SETTINGS_FILE.write_text(
-        json.dumps(configuracoes, ensure_ascii=False, indent=2),
-        encoding="utf-8",
-    )
+    _write_settings(configuracoes)
 
 
 def tr(key: str, language: str | None = None, **values) -> str:

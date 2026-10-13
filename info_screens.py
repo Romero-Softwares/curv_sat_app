@@ -56,6 +56,29 @@ def _configurar_icone_janela(janela: ctk.CTkToplevel) -> None:
         pass
 
 
+def _remover_botao_fechar_janela(janela: ctk.CTkToplevel) -> None:
+    """Remove o botÃ£o nativo de fechar da barra de tÃ­tulo no Windows."""
+    if sys.platform != "win32":
+        return
+
+    def aplicar() -> None:
+        try:
+            import ctypes
+
+            estilo_atual = ctypes.windll.user32.GetWindowLongW(janela.winfo_id(), -16)
+            ctypes.windll.user32.SetWindowLongW(
+                janela.winfo_id(), -16, estilo_atual & ~0x00080000
+            )
+            ctypes.windll.user32.SetWindowPos(
+                janela.winfo_id(), 0, 0, 0, 0, 0, 0x0027
+            )
+        except Exception:
+            pass
+
+    janela.protocol("WM_DELETE_WINDOW", lambda: None)
+    janela.after_idle(aplicar)
+
+
 def criar_janela_informacao(
     parent: ctk.CTk,
     *,
@@ -63,6 +86,8 @@ def criar_janela_informacao(
     icone: str,
     subtitulo: str = "",
     geometry: str = "680x510",
+    rolavel: bool = True,
+    exibir_botao_fechar: bool = True,
 ) -> tuple[ctk.CTkToplevel, ctk.CTkFrame]:
     """Cria uma janela padronizada e devolve a área para o conteúdo específico."""
     janela = ctk.CTkToplevel(parent)
@@ -72,6 +97,8 @@ def criar_janela_informacao(
     janela.minsize(580, 420)
     janela.transient(parent)
     janela.grab_set()
+    if not exibir_botao_fechar:
+        _remover_botao_fechar_janela(janela)
     janela.grid_columnconfigure(0, weight=1)
     janela.grid_rowconfigure(1, weight=1)
 
@@ -98,7 +125,8 @@ def criar_janela_informacao(
             text_color="#c5d8e8",
         ).grid(row=1, column=1, padx=(0, 22), pady=(0, 16), sticky="nw")
 
-    conteudo = ctk.CTkScrollableFrame(janela, corner_radius=0, fg_color="transparent")
+    classe_conteudo = ctk.CTkScrollableFrame if rolavel else ctk.CTkFrame
+    conteudo = classe_conteudo(janela, corner_radius=0, fg_color="transparent")
     conteudo.grid(row=1, column=0, padx=22, pady=18, sticky="nsew")
     conteudo.grid_columnconfigure(1, weight=1)
     return janela, conteudo
@@ -228,7 +256,9 @@ def abrir_licenca_sincronizacao(parent: ctk.CTk) -> None:
         titulo=tr("license_sync_title"),
         icone="☁",
         subtitulo=tr("license_activation_title"),
-        geometry="680x700",
+        geometry="680x580",
+        rolavel=False,
+        exibir_botao_fechar=True,
     )
     conteudo.grid_columnconfigure(0, weight=1)
 
@@ -434,9 +464,6 @@ def abrir_licenca_sincronizacao(parent: ctk.CTk) -> None:
     )
     data_sync_button.grid(row=3, column=1, padx=(0, 14), pady=(2, 12))
 
-    fechar_button = ctk.CTkButton(conteudo, text=tr("close"), width=110, command=janela.destroy)
-    fechar_button.grid(row=2, column=0, padx=2, pady=(2, 0), sticky="e")
-    add_tooltip(fechar_button, tr("tooltip_close_window"))
     atualizar_status_licenca()
     sincronizar_licenca()
 

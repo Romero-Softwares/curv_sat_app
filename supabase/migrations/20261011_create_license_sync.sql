@@ -114,6 +114,11 @@ create table if not exists public.curvsat_system_records (
 create index if not exists idx_curvsat_system_records_sync
     on public.curvsat_system_records (license_hash, updated_at desc);
 
+-- A instalação inicial podia já ter a tabela de registros sem o marcador de
+-- exclusão. Mantenha esta migração reaplicável nesses bancos.
+alter table public.curvsat_system_records
+    add column if not exists deleted boolean not null default false;
+
 create table if not exists public.curvsat_system_reports (
     license_hash text not null references public.curvsat_license_activations(license_hash) on delete cascade,
     sha256 text not null check (sha256 ~ '^[a-f0-9]{64}$'),

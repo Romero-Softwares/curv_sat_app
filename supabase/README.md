@@ -24,8 +24,12 @@ licenca compartilhada automaticamente no primeiro sincronismo.
 
 ## Dados do sistema
 
-O proximo conjunto de tabelas deve sincronizar configuracoes, cadastros de PN,
-curvas salvas e historico de relatorios usando a mesma identidade de licenca.
-Assim, o segundo computador autorizado podera abrir os dados que o primeiro
-enviou. Ate essas tabelas e o fluxo de envio/recebimento serem adicionados, os
-arquivos `configuracoes.json` e `dados_pn.db` continuam locais ao Windows.
+Os dados compartilhados sincronizam configuracoes, cadastros de PN, curvas
+salvas e historico de relatorios usando a mesma identidade de licenca. Execute
+tambem `migrations/20261012_compact_deleted_system_data.sql` no SQL Editor:
+ela remove imediatamente do banco remoto o HTML e os JSONs de PNs e relatorios
+excluidos, preservando apenas um marcador minimo para propagar a exclusao aos
+outros computadores autorizados. Em seguida, execute tambem
+`migrations/20261012_purge_deleted_system_data_after_7_days.sql`: o marcador
+fica disponivel por sete dias e e removido definitivamente no sincronismo
+seguinte ao vencimento.

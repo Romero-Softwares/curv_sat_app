@@ -30,6 +30,7 @@ class DataSyncTests(unittest.TestCase):
             tombstone = next(record for record in banco.exportar_para_sincronizacao()["records"] if record["pn"] == "PN-REMOTO")
             self.assertTrue(tombstone["deleted"])
             self.assertIsInstance(tombstone["updated_at"], str)
+            self.assertTrue(tombstone["updated_at"].endswith("+00:00"))
 
     def test_import_does_not_count_records_that_are_already_current(self):
         with TemporaryDirectory() as directory:
@@ -77,9 +78,61 @@ class DataSyncTests(unittest.TestCase):
             self.assertEqual(removido["numero"], relatorio["numero"])
             tombstone = origem.exportar_para_sincronizacao()["reports"][0]
             self.assertTrue(tombstone["deleted"])
+            self.assertTrue(tombstone["updated_at"].endswith("+00:00"))
 
             self.assertEqual(destino.importar_da_sincronizacao([], [tombstone])["reports"], 1)
             self.assertEqual(destino.buscar_relatorios_emitidos(), [])
+            self.assertEqual(destino.importar_da_sincronizacao([], [tombstone])["reports"], 0)
+
+    def test_deleted_report_is_not_resurrected_by_an_outdated_remote_copy(self):
+        with TemporaryDirectory() as directory:
+            banco = BancoDadosPN(Path(directory) / "dados.db")
+            banco.emitir_relatorio("REL", "PN-1", "", lambda number, _issued: f"<html>{number}</html>")
+            active_copy = banco.exportar_para_sincronizacao()["reports"][0]
+
+            relatorio = banco.buscar_relatorios_emitidos()[0]
+            banco.remover_relatorio_emitido(relatorio["id"])
+            active_copy["updated_at"] = "2099-01-01T00:00:00"
+
+            self.assertEqual(banco.importar_da_sincronizacao([], [active_copy])["reports"], 0)
+            self.assertEqual(banco.buscar_relatorios_emitidos(), [])
+            exported = banco.exportar_para_sincronizacao()["reports"]
+            self.assertEqual(len(exported), 1)
+            self.assertTrue(exported[0]["deleted"])
+
+    def test_export_reissues_legacy_tombstone_with_utc_offset(self):
+        with TemporaryDirectory() as directory:
+            banco = BancoDadosPN(Path(directory) / "dados.db")
+            banco.emitir_relatorio("REL", "PN-1", "", lambda number, _issued: f"<html>{number}</html>")
+            relatorio = banco.buscar_relatorios_emitidos()[0]
+            banco.remover_relatorio_emitido(relatorio["id"])
+            with banco._conectar() as conexao:
+                conexao.execute(
+                    "UPDATE relatorios_emitidos_excluidos SET excluido_em = '2026-10-12T22:57:00'"
+                )
+
+            tombstone = banco.exportar_para_sincronizacao()["reports"][0]
+            self.assertTrue(tombstone["updated_at"].endswith("+00:00"))
+
+    def test_expired_tombstones_are_not_republished(self):
+        with TemporaryDirectory() as directory:
+            banco = BancoDadosPN(Path(directory) / "dados.db")
+            banco.salvar({"Peça / PN": "PN-EXPIRADO"})
+            self.assertTrue(banco.remover("PN-EXPIRADO"))
+            banco.emitir_relatorio("REL", "PN-1", "", lambda number, _issued: f"<html>{number}</html>")
+            banco.remover_relatorio_emitido(banco.buscar_relatorios_emitidos()[0]["id"])
+
+            with banco._conectar() as conexao:
+                conexao.execute(
+                    "UPDATE cadastros_pn_excluidos SET excluido_em = '2000-01-01T00:00:00+00:00'"
+                )
+                conexao.execute(
+                    "UPDATE relatorios_emitidos_excluidos SET excluido_em = '2000-01-01T00:00:00+00:00'"
+                )
+
+            exported = banco.exportar_para_sincronizacao()
+            self.assertEqual(exported["records"], [])
+            self.assertEqual(exported["reports"], [])
 
 
 if __name__ == "__main__":

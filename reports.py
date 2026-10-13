@@ -9,8 +9,9 @@ import json
 import os, sys
 import re
 import sqlite3
+import threading
 from contextlib import contextmanager
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from io import BytesIO
 from pathlib import Path
 from tkinter import filedialog, messagebox
@@ -55,6 +56,47 @@ _CAMPO_CHAVES = {
     "Unidade de exposição": "exposure_unit", "Unidade da altura do arco": "arc_unit",
     "Desvios de lâmina cadastrados": "registered_deviations",
 }
+
+
+RETENCAO_MARCADOR_EXCLUSAO_DIAS = 7
+
+
+def _timestamp_sincronizacao() -> str:
+    """Gera um instante inequívoco para o merge do Supabase.
+
+    O banco remoto recebe ``timestamptz``. Horários sem fuso eram tratados
+    como UTC, embora fossem criados no horário local, e uma exclusão podia
+    parecer anterior ao relatório que deveria remover.
+    """
+    return datetime.now(timezone.utc).isoformat(timespec="microseconds")
+
+
+def _possui_fuso_horario(timestamp: object) -> bool:
+    """Informa se uma data ISO guarda o deslocamento UTC explicitamente."""
+    if not isinstance(timestamp, str):
+        return False
+    try:
+        return datetime.fromisoformat(timestamp.replace("Z", "+00:00")).tzinfo is not None
+    except ValueError:
+        return False
+
+
+def _marcador_exclusao_expirou(timestamp: object, agora: datetime | None = None) -> bool:
+    """Indica se o marcador de exclusão ultrapassou a retenção configurada.
+
+    Datas legadas sem fuso não expiram aqui: elas são normalizadas e reenviadas
+    antes da limpeza, preservando a exclusão durante todo o prazo de retenção.
+    """
+    if not isinstance(timestamp, str):
+        return False
+    try:
+        momento = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+    except ValueError:
+        return False
+    if momento.tzinfo is None:
+        return False
+    referencia = agora or datetime.now(timezone.utc)
+    return momento <= referencia - timedelta(days=RETENCAO_MARCADOR_EXCLUSAO_DIAS)
 
 
 def texto_campo(rotulo):
@@ -336,7 +378,7 @@ class BancoDadosPN:
                     sn,
                     json.dumps(dados_normalizados, ensure_ascii=False),
                     json.dumps(curva, ensure_ascii=False) if curva is not None else None,
-                    datetime.now().isoformat(timespec="seconds"),
+                    _timestamp_sincronizacao(),
                 ),
             )
             conexao.execute(
@@ -426,13 +468,44 @@ class BancoDadosPN:
                     VALUES (?, ?, ?)
                     ON CONFLICT(pn, serial_number) DO UPDATE SET excluido_em = excluded.excluido_em
                     """,
-                    (pn, sn, datetime.now().isoformat(timespec="seconds")),
+                    (pn, sn, _timestamp_sincronizacao()),
                 )
         return cursor.rowcount > 0
 
     def exportar_para_sincronizacao(self):
         """Serializa apenas dados do sistema, sem copiar o arquivo SQLite entre PCs."""
         with self._conectar() as conexao:
+            # Reemite uma vez os marcadores criados por versões antigas, que
+            # gravavam data sem fuso. Isso permite que exclusões já pendentes
+            # vençam o registro remoto que recebeu um ``updated_at`` UTC.
+            for tabela, chave in (
+                ("cadastros_pn_excluidos", "pn, serial_number"),
+                ("relatorios_emitidos_excluidos", "sha256"),
+            ):
+                linhas_legadas = conexao.execute(
+                    f"SELECT {chave}, excluido_em FROM {tabela}"
+                ).fetchall()
+                for linha in linhas_legadas:
+                    if _possui_fuso_horario(linha["excluido_em"]):
+                        continue
+                    if tabela == "cadastros_pn_excluidos":
+                        conexao.execute(
+                            "UPDATE cadastros_pn_excluidos SET excluido_em = ? WHERE pn = ? AND serial_number = ?",
+                            (_timestamp_sincronizacao(), linha["pn"], linha["serial_number"]),
+                        )
+                    else:
+                        conexao.execute(
+                            "UPDATE relatorios_emitidos_excluidos SET excluido_em = ? WHERE sha256 = ?",
+                            (_timestamp_sincronizacao(), linha["sha256"]),
+                        )
+            agora = datetime.now(timezone.utc)
+            for tabela in ("cadastros_pn_excluidos", "relatorios_emitidos_excluidos"):
+                linhas_expiradas = conexao.execute(
+                    f"SELECT rowid, excluido_em FROM {tabela}"
+                ).fetchall()
+                for linha in linhas_expiradas:
+                    if _marcador_exclusao_expirou(linha["excluido_em"], agora):
+                        conexao.execute(f"DELETE FROM {tabela} WHERE rowid = ?", (linha["rowid"],))
             cadastros = conexao.execute(
                 "SELECT pn, serial_number, dados_json, curva_json, atualizado_em FROM cadastros_pn"
             ).fetchall()
@@ -489,6 +562,8 @@ class BancoDadosPN:
                 updated_at = record.get("updated_at")
                 deleted = record.get("deleted", False)
                 if not pn or not isinstance(updated_at, str) or not isinstance(deleted, bool):
+                    continue
+                if deleted and _marcador_exclusao_expirou(updated_at):
                     continue
                 local = conexao.execute(
                     "SELECT dados_json, curva_json, atualizado_em FROM cadastros_pn WHERE pn = ? AND serial_number = ?", (pn, sn)
@@ -559,12 +634,21 @@ class BancoDadosPN:
                     continue
                 if not isinstance(deleted, bool) or not isinstance(updated_at, str):
                     continue
+                if deleted and _marcador_exclusao_expirou(updated_at):
+                    continue
                 local = conexao.execute(
                     "SELECT id, criado_em FROM relatorios_emitidos WHERE sha256 = ?", (sha256,)
                 ).fetchone()
                 tombstone = conexao.execute(
                     "SELECT excluido_em FROM relatorios_emitidos_excluidos WHERE sha256 = ?", (sha256,)
                 ).fetchone()
+                # A exclusão é definitiva para este identificador. Um relatório
+                # ativo que ainda exista em uma instalação/servidor desatualizado
+                # não pode consumir a marca local de exclusão e reaparecer aqui.
+                # Um novo relatório recebe outro SHA-256, portanto não há perda
+                # de uma recriação legítima.
+                if tombstone is not None and not deleted:
+                    continue
                 newest_local = max(
                     local["criado_em"] if local else "",
                     tombstone["excluido_em"] if tombstone else "",
@@ -572,6 +656,11 @@ class BancoDadosPN:
                 if newest_local > updated_at:
                     continue
                 if deleted:
+                    changed = (
+                        local is not None
+                        or tombstone is None
+                        or tombstone["excluido_em"] != updated_at
+                    )
                     conexao.execute("DELETE FROM relatorios_emitidos WHERE sha256 = ?", (sha256,))
                     conexao.execute(
                         """
@@ -581,7 +670,8 @@ class BancoDadosPN:
                         """,
                         (sha256, updated_at),
                     )
-                    imported_reports += 1
+                    if changed:
+                        imported_reports += 1
                     continue
                 if local:
                     continue
@@ -647,7 +737,7 @@ class BancoDadosPN:
                 (
                     numero, prefixo, ano, sequencia, emitido_em.isoformat(timespec="minutes"),
                     self._normalizar_pn(pn), self._normalizar_sn(sn), conteudo_html, sha256,
-                    datetime.now().isoformat(timespec="seconds"),
+                    _timestamp_sincronizacao(),
                 ),
             )
         return {"numero": numero, "emitido_em": emitido_em, "conteudo_html": conteudo_html, "sha256": sha256}
@@ -709,7 +799,7 @@ class BancoDadosPN:
                 VALUES (?, ?)
                 ON CONFLICT(sha256) DO UPDATE SET excluido_em = excluded.excluido_em
                 """,
-                (relatorio["sha256"], datetime.now().isoformat(timespec="seconds")),
+                (relatorio["sha256"], _timestamp_sincronizacao()),
             )
         return dict(relatorio)
 
@@ -1377,6 +1467,18 @@ def abrir_historico_relatorios(app):
             return
         app.lbl_status.configure(text=tr("report_deleted", number=relatorio["numero"]), text_color="#2ecc71")
         atualizar()
+
+        # Envia a marca de exclusão logo após a confirmação, sem bloquear a
+        # janela. Se estiver offline, ela permanece no banco local e a próxima
+        # sincronização automática/manual a reenviará.
+        def sincronizar_exclusao():
+            try:
+                from license_service import sync_active_system_data
+                sync_active_system_data()
+            except Exception:
+                pass
+
+        threading.Thread(target=sincronizar_exclusao, daemon=True).start()
 
     def filtros_ativos():
         # A busca nominal é uma alternativa ao período atual e permite localizar
