@@ -321,8 +321,14 @@ class CalcularSaturacaoTests(unittest.TestCase):
         self.assertIn('class="cabecalho"', relatorio)
         self.assertIn("border: 1.5px solid #2f80c4", relatorio)
         self.assertIn("border-right: 1px solid #b7c9da", relatorio)
+        self.assertIn("@page { size: A4; margin: 12mm; }", relatorio)
+        self.assertIn("font-size: 18pt", relatorio)
+        self.assertIn("min-height: 273mm", relatorio)
         self.assertIn('class="resultado-curva"', relatorio)
-        self.assertIn("break-before: page", relatorio)
+        self.assertIn('class="pagina-relatorio"', relatorio)
+        for pagina in range(1, 4):
+            self.assertIn(f'class="rodape-pagina">{tr("report_page")} {pagina}</footer>', relatorio)
+        self.assertNotIn("counter(page)", relatorio)
 
     def test_relatorio_html_registra_leitura_desvio_negativo_e_compensacao(self):
         resultado = calcular_saturacao(
@@ -348,7 +354,7 @@ class CalcularSaturacaoTests(unittest.TestCase):
         self.assertNotIn("<td>0.5000</td>", relatorio)
         self.assertIn("-0.0011", relatorio)
         self.assertIn("0.1111", relatorio)
-        self.assertIn("page-break-before: always", relatorio)
+        self.assertIn("page-break-after: always", relatorio)
 
     def test_relatorio_html_deixa_assinaturas_para_preenchimento_impresso(self):
         resultado = calcular_saturacao(

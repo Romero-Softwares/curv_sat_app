@@ -973,6 +973,7 @@ def montar_relatorio_html(
     ]
     data_emissao = (emitido_em or datetime.now()).strftime("%d/%m/%Y %H:%M")
     logo_empresa = _logo_empresa_data_uri(caminho_logo)
+    rotulo_pagina = html.escape(tr("report_page"))
     logo_html = (
         f'<img class="logo-empresa" src="{logo_empresa}" alt="{html.escape(tr("company_logo"))}">'
         if logo_empresa
@@ -982,25 +983,23 @@ def montar_relatorio_html(
 <html lang="{html_language()}">
 <head>
 <meta charset="utf-8">
-<title>{tr('report_heading')}</title>
+<title>{tr('html_report_heading')}</title>
 <style>
-    @page {{ size: A4; margin: 16mm; }}
-    body {{ color: #172033; font: 11pt Arial, sans-serif; margin: 0; }}
-    .cabecalho {{ align-items: center; border: 1.5px solid #2f80c4; border-radius: 5px; display: flex; gap: 20px; margin-bottom: 22px; min-height: 106px; padding: 14px 18px; }}
+    @page {{ size: A4; margin: 12mm; }}
+    body {{ color: #172033; font: 10.5pt Arial, sans-serif; margin: 0; }}
+    .cabecalho {{ align-items: center; border: 1.5px solid #2f80c4; border-radius: 5px; display: flex; gap: 18px; margin-bottom: 18px; min-height: 92px; padding: 12px 16px; }}
     .cabecalho-conteudo {{ flex: 1; min-width: 0; }}
-    h1 {{ color: #153e67; font-size: 20pt; margin: 0 0 5px; }}
-    .logo-empresa {{ border-right: 1px solid #b7c9da; flex: 0 0 180px; height: 105px; object-fit: contain; order: -1; padding-right: 20px; width: 180px; }}
-    h2 {{ border-bottom: 2px solid #2f80c4; color: #153e67; font-size: 13pt; margin: 24px 0 8px; padding-bottom: 4px; }}
+    h1 {{ color: #153e67; font-size: 18pt; margin: 0 0 4px; }}
+    .logo-empresa {{ border-right: 1px solid #b7c9da; flex: 0 0 165px; height: 92px; object-fit: contain; order: -1; padding-right: 18px; width: 165px; }}
+    h2 {{ border-bottom: 2px solid #2f80c4; color: #153e67; font-size: 12pt; margin: 20px 0 7px; padding-bottom: 3px; }}
     .subtitle {{ color: #52606d; margin: 0; }}
-    .meta {{ color: #52606d; font-size: 9pt; margin-top: 14px; }}
+    .meta {{ color: #52606d; font-size: 8.5pt; margin-top: 10px; }}
     table {{ border-collapse: collapse; width: 100%; }}
-    th, td {{ border: 1px solid #cbd5e1; padding: 7px 9px; text-align: left; vertical-align: top; }}
+    th, td {{ border: 1px solid #cbd5e1; padding: 5px 8px; text-align: left; vertical-align: top; }}
     th {{ background: #eef5fb; font-weight: bold; width: 38%; }}
-    .norma {{ background: #f1f8f4; border-left: 4px solid #2e9b62; padding: 10px; white-space: pre-line; }}
+    .norma {{ background: #f1f8f4; border-left: 4px solid #2e9b62; padding: 8px; white-space: pre-line; }}
     .grafico {{ border: 1px solid #cbd5e1; box-sizing: border-box; margin-top: 8px; max-width: 100%; padding: 8px; width: 100%; }}
     .aviso {{ background: #fff8e5; border-left: 4px solid #e0a020; margin-top: 18px; padding: 10px; }}
-    .resultado-curva {{ break-before: page; page-break-before: always; }}
-    .medicoes-laminas {{ break-before: page; page-break-before: always; }}
     .medicoes-laminas th {{ width: auto; text-align: center; }}
     .medicoes-laminas td {{ text-align: center; }}
     .medicoes-laminas td:nth-child(2) {{ text-align: left; }}
@@ -1012,13 +1011,18 @@ def montar_relatorio_html(
     .integridade-relatorio {{ background: #f5f8fb; border: 1px solid #cbd5e1; font-size: 8.5pt; margin-top: 22px; padding: 8px 10px; }}
     .integridade-relatorio code {{ display: block; font-family: Consolas, monospace; margin-top: 4px; overflow-wrap: anywhere; }}
     .integridade-relatorio p {{ color: #52606d; margin: 5px 0 0; }}
+    .pagina-relatorio {{ box-sizing: border-box; break-after: page; display: flex; flex-direction: column; min-height: 273mm; page-break-after: always; }}
+    .pagina-relatorio:last-child {{ break-after: auto; page-break-after: auto; }}
+    .rodape-pagina {{ color: #52606d; font: 8pt Arial, sans-serif; margin-top: auto; padding-top: 5mm; text-align: right; }}
 </style>
 </head>
 <body>
+<main>
+<section class="pagina-relatorio">
 <header class="cabecalho">
     {logo_html}
     <div class="cabecalho-conteudo">
-        <h1>{tr('report_heading')}</h1>
+        <h1>{tr('html_report_heading')}</h1>
         <p class="subtitle">{tr('report_subtitle')}</p>
         {f'<p class="meta"><strong>{html.escape(tr("report_number"))}:</strong> {html.escape(numero_relatorio)}</p>' if numero_relatorio else ''}
         <p class="meta">{tr('issued', date=data_emissao)}</p>
@@ -1030,12 +1034,18 @@ def montar_relatorio_html(
 <div class="norma">{html.escape(str(norma).strip() or tr('no_information'))}</div>
 <h2>{tr('process_parameters')}</h2>
 <table>{linhas_tabela(parametros.items())}</table>
+<footer class="rodape-pagina">{rotulo_pagina} 1</footer>
+</section>
+<section class="pagina-relatorio">
 <section class="resultado-curva">
     <h2>{tr('curve_results')}</h2>
     <table>{linhas_tabela(resultados)}</table>
     <h2>{tr('saturation_chart')}</h2>
     <img class="grafico" src="data:image/png;base64,{grafico_base64}" alt="{tr('saturation_chart')}">
 </section>
+<footer class="rodape-pagina">{rotulo_pagina} 2</footer>
+</section>
+<section class="pagina-relatorio">
 <section class="medicoes-laminas">
     <h2>{tr('strip_measurements_table')}</h2>
     <p class="formula-compensacao">{tr('strip_compensation_formula')}</p>
@@ -1071,6 +1081,9 @@ def montar_relatorio_html(
         <p>{tr('integrity_sha256_note')}</p>
     </section>
 </section>
+<footer class="rodape-pagina">{rotulo_pagina} 3</footer>
+</section>
+</main>
 </body>
 </html>"""
 
@@ -1370,6 +1383,8 @@ def abrir_relatorio(app):
             for rotulo in ("Router", "Peça / PN", "SN da peça", "Referencia-CMM", "Reparo")
         }
         buffer_grafico = BytesIO()
+        destaque_atual = getattr(app, "_destaque_intensidade_atual", None)
+        remover_destaque_faixa_intensidade(app.ax, destaque_atual)
         destaque = destacar_faixa_intensidade(
             app.ax,
             dados["Intensidade de peening"],
@@ -1385,6 +1400,19 @@ def abrir_relatorio(app):
             app.fig.savefig(buffer_grafico, format="png", dpi=180, facecolor=app.fig.get_facecolor(), bbox_inches="tight")
         finally:
             remover_destaque_faixa_intensidade(app.ax, destaque)
+            if destaque_atual is not None:
+                intensidade_atual, unidade_atual = app._intensidade_destaque_exemplo
+                app._destaque_intensidade_atual = destacar_faixa_intensidade(
+                    app.ax,
+                    intensidade_atual,
+                    unidade_atual,
+                    app.unidade_arco,
+                    tr(
+                        "required_peening_intensity_legend",
+                        value=intensidade_atual,
+                        unit=unidade_atual,
+                    ),
+                )
         caminho = filedialog.asksaveasfilename(
             parent=janela,
             title=tr("save_report"),
