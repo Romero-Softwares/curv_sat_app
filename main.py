@@ -386,6 +386,7 @@ class AlmenApp(ctk.CTk):
         self._arquivo_impressao = None
         self._ultimo_resultado = None
         self._intensidade_destaque_exemplo = None
+        self._destaque_intensidade_atual = None
         self._origem_curva = {"tipo": "example"}
         self.dados_relatorio = {
             **{rotulo: "" for rotulo in CAMPO_TEXTO_RELATORIO},
@@ -1301,7 +1302,7 @@ class AlmenApp(ctk.CTk):
             self.ax.vlines(t_2sat, limite_inferior_eixo, h_2sat, colors="#e056fd", linestyles="dotted", alpha=0.7)
             if self._intensidade_destaque_exemplo:
                 intensidade, unidade_intensidade = self._intensidade_destaque_exemplo
-                destacar_faixa_intensidade(
+                self._destaque_intensidade_atual = destacar_faixa_intensidade(
                     self.ax,
                     intensidade,
                     unidade_intensidade,
@@ -1312,6 +1313,8 @@ class AlmenApp(ctk.CTk):
                         unit=unidade_intensidade,
                     ),
                 )
+            else:
+                self._destaque_intensidade_atual = None
             self.ax.legend(
                 loc="lower right",
                 facecolor="#ffffff",

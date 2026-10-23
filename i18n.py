@@ -613,6 +613,25 @@ _TEXTS["ES"].update({
     "automatic_sync_disabled": "Sincronización automática desactivada en este ordenador.",
 })
 
+_TEXTS["PT"].update({
+    "html_report_heading": "Relatório técnico da curva de saturação",
+    "report_page": "Página",
+})
+_TEXTS["EN"].update({
+    "generate_report": "Manage Data and Report",
+    "report_title": "Manage Data and Report",
+    "report_heading": "Manage Data and Report",
+    "html_report_heading": "Saturation curve technical report",
+    "report_page": "Page",
+})
+_TEXTS["ES"].update({
+    "generate_report": "Gestionar Datos e Informe",
+    "report_title": "Gestionar Datos e Informe",
+    "report_heading": "Gestionar Datos e Informe",
+    "html_report_heading": "Informe técnico de la curva de saturación",
+    "report_page": "Página",
+})
+
 
 def load_language() -> str:
     try:
