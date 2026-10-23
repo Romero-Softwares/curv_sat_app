@@ -448,6 +448,24 @@ class BancoDadosPN:
         dados.update({chave: str(valor or "") for chave, valor in _migrar_campos_legados(dados_salvos).items()})
         return dados
 
+    def obter_curva(self, pn, sn=""):
+        """Retorna a curva vinculada ao cadastro exato de PN e número de série."""
+        pn = self._normalizar_pn(pn)
+        if not pn:
+            return None
+        sn = self._normalizar_sn(sn)
+        with self._conectar() as conexao:
+            linha = conexao.execute(
+                "SELECT curva_json FROM cadastros_pn WHERE pn = ? AND serial_number = ?", (pn, sn)
+            ).fetchone()
+        if linha is None or not linha["curva_json"]:
+            return None
+        try:
+            curva = json.loads(linha["curva_json"])
+        except (TypeError, json.JSONDecodeError):
+            return None
+        return curva if isinstance(curva, dict) else None
+
     def obter_ultima_curva(self):
         """Retorna a curva associada ao PN salvo mais recentemente, se houver."""
         with self._conectar() as conexao:
@@ -476,10 +494,12 @@ class BancoDadosPN:
                     """
                     SELECT pn, serial_number FROM cadastros_pn
                     WHERE pn LIKE ? ESCAPE '\\'
+                       OR serial_number LIKE ? ESCAPE '\\'
+                       OR json_extract(dados_json, '$.Router') LIKE ? ESCAPE '\\'
                     ORDER BY pn COLLATE NOCASE, serial_number COLLATE NOCASE
                     LIMIT ?
                     """,
-                    (f"%{termo_escapado}%", limite),
+                    (f"%{termo_escapado}%", f"%{termo_escapado}%", f"%{termo_escapado}%", limite),
                 ).fetchall()
             else:
                 linhas = conexao.execute(
@@ -1069,8 +1089,33 @@ def abrir_relatorio(app):
     altura_janela = min(max(580, int(altura_tela * 0.84)), 600)
     janela.geometry(f"{largura_janela}x{altura_janela}")
     janela.minsize(700, 560)
-    janela.transient(app)
-    janela.grab_set()
+
+    def exibir_janela_em_primeiro_plano():
+        """Garante a abertura à frente após o Windows criar a janela."""
+        if not janela.winfo_exists():
+            return
+        janela.deiconify()
+        janela.attributes("-topmost", True)
+        janela.lift()
+        janela.focus_force()
+
+        def restaurar_empilhamento_normal():
+            if not janela.winfo_exists():
+                return
+            janela.attributes("-topmost", False)
+            janela.lift()
+            janela.focus_force()
+
+        # Mantém a janela acima apenas durante a abertura. Em seguida ela
+        # volta ao comportamento normal do Windows, inclusive minimizar.
+        janela.after(900, restaurar_empilhamento_normal)
+
+    # A criação visual ocorre após o retorno ao loop do Tk. Adiar esta ação
+    # impede que a janela principal a cubra ao concluir a própria renderização.
+    janela.after(200, exibir_janela_em_primeiro_plano)
+    # A janela permanece não modal para que a barra de título do Windows
+    # ofereça o controle padrão de minimizar e o usuário possa consultar a
+    # curva principal enquanto administra os dados e o relatório.
     janela.grid_columnconfigure(0, weight=1)
     janela.grid_rowconfigure(2, weight=1)
 
@@ -1236,6 +1281,9 @@ def abrir_relatorio(app):
         dados = app.banco_pn.obter(pn, sn)
         if not dados:
             return
+        curva = app.banco_pn.obter_curva(pn, sn)
+        if curva is not None:
+            app.carregar_curva_de_referencia(curva, dados.get("Router", ""), pn, sn)
         preencher(dados)
         busca_entry.delete(0, "end")
         busca_entry.insert(0, dados["Peça / PN"])

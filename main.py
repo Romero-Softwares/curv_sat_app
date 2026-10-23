@@ -386,6 +386,7 @@ class AlmenApp(ctk.CTk):
         self._arquivo_impressao = None
         self._ultimo_resultado = None
         self._intensidade_destaque_exemplo = None
+        self._origem_curva = {"tipo": "example"}
         self.dados_relatorio = {
             **{rotulo: "" for rotulo in CAMPO_TEXTO_RELATORIO},
             **{rotulo: "" for rotulo in CAMPO_UNIDADE_RELATORIO},
@@ -579,12 +580,22 @@ class AlmenApp(ctk.CTk):
 
         right_frame = ctk.CTkFrame(self, corner_radius=10)
         right_frame.grid(row=0, column=1, padx=(0, 15), pady=15, sticky="nsew")
-        right_frame.grid_rowconfigure(0, weight=1)
+        right_frame.grid_rowconfigure(1, weight=1)
         right_frame.grid_columnconfigure(0, weight=1)
+        self.lbl_origem_curva = ctk.CTkLabel(
+            right_frame,
+            text=self._texto_origem_curva(),
+            anchor="w",
+            font=ctk.CTkFont(size=12, weight="bold"),
+            text_color="#1d4e89",
+            fg_color="#dcecff",
+            corner_radius=6,
+        )
+        self.lbl_origem_curva.grid(row=0, column=0, padx=10, pady=(10, 0), sticky="ew")
         self.fig, self.ax = plt.subplots(figsize=(6, 5), facecolor="#ffffff")
         self._format_axes()
         self.canvas = FigureCanvasTkAgg(self.fig, master=right_frame)
-        self.canvas.get_tk_widget().grid(row=0, column=0, padx=10, pady=10, sticky="nsew")
+        self.canvas.get_tk_widget().grid(row=1, column=0, padx=10, pady=10, sticky="nsew")
         self.print_button = ctk.CTkButton(
             self.canvas.get_tk_widget(),
             text=self.t("print_chart"),
@@ -753,11 +764,33 @@ class AlmenApp(ctk.CTk):
         curva_salva = self.banco_pn.obter_ultima_curva()
         while self.rows:
             self.remove_row()
-        if not (curva_salva and self._carregar_curva_salva(curva_salva)):
+        if curva_salva and self._carregar_curva_salva(curva_salva):
+            self._definir_origem_curva("latest")
+        else:
             self._intensidade_destaque_exemplo = None
             for tempo, altura in [(0.5, 0.11), (1.0, 0.17), (2.0, 0.22), (4.0, 0.24)]:
                 self.add_row(tempo, altura)
+            self._definir_origem_curva("example")
         self.calcular_e_plotar()
+
+    def _texto_origem_curva(self):
+        origem = self._origem_curva
+        tipo = origem.get("tipo")
+        if tipo == "selected":
+            return self.t(
+                "curve_source_selected",
+                router=origem.get("router") or "-",
+                pn=origem.get("pn") or "-",
+                sn=origem.get("sn") or "-",
+            )
+        if tipo == "latest":
+            return self.t("curve_source_latest")
+        return self.t("curve_source_example")
+
+    def _definir_origem_curva(self, tipo, router="", pn="", sn=""):
+        self._origem_curva = {"tipo": tipo, "router": router, "pn": pn, "sn": sn}
+        if hasattr(self, "lbl_origem_curva"):
+            self.lbl_origem_curva.configure(text=self._texto_origem_curva())
 
     def _carregar_curva_salva(self, curva):
         """Carrega a última curva de PN como exemplo, mantendo o fallback estático seguro."""
@@ -807,6 +840,33 @@ class AlmenApp(ctk.CTk):
         for tempo, altura, lamina in zip(tempos, alturas, laminas_salvas):
             nome_lamina = str(lamina).strip() if isinstance(lamina, str) else None
             self.add_row(tempo, altura, nome_lamina if nome_lamina in desvios_validos else None)
+        return True
+
+    def carregar_curva_de_referencia(self, curva, router="", pn="", sn=""):
+        """Substitui a curva em análise pela curva salva no cadastro selecionado."""
+        try:
+            tempos = [float(valor) for valor in curva["tempos"]]
+            alturas = [float(valor) for valor in curva["alturas"]]
+            unidade_arco = curva.get("unidade_arco", curva.get("unidade_flecha"))
+            curva_valida = (
+                len(tempos) >= 4
+                and len(tempos) == len(alturas)
+                and unidade_arco in UNIDADES_ARCO
+                and curva.get("tipo_lamina") in TIPOS_LAMINA
+                and curva.get("tipo_exposicao") in UNIDADES_EXPOSICAO
+            )
+        except (KeyError, TypeError, ValueError):
+            curva_valida = False
+        if not curva_valida:
+            return False
+
+        while self.rows:
+            self.remove_row()
+        self.desvios_laminas.clear()
+        if not self._carregar_curva_salva(curva):
+            return False
+        self._definir_origem_curva("selected", router, pn, sn)
+        self.calcular_e_plotar()
         return True
 
     def curva_atual_para_salvar(self):

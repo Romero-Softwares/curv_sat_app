@@ -123,6 +123,23 @@ class CalcularSaturacaoTests(unittest.TestCase):
         self.assertEqual(linhas_recarregadas[0], (1.0, 0.1, "L-NEG"))
         self.assertEqual(linhas_recarregadas[1], (2.0, 0.17, "L-ZERO"))
 
+    def test_indicador_informa_a_origem_dos_dados_da_curva(self):
+        app = SimpleNamespace(
+            _origem_curva={"tipo": "selected", "router": "Router 01", "pn": "PN-100", "sn": "SN-A"},
+            t=lambda chave, **valores: tr(chave, "PT", **valores),
+        )
+
+        self.assertEqual(
+            AlmenApp._texto_origem_curva(app),
+            "Dados da curva exibida: cadastro selecionado — Router: Router 01 | PN: PN-100 | SN: SN-A",
+        )
+
+        app._origem_curva = {"tipo": "latest"}
+        self.assertEqual(
+            AlmenApp._texto_origem_curva(app),
+            "Dados da curva exibida: última curva salva",
+        )
+
     def test_detecta_windows_8_pelo_numero_de_compilacao(self):
         self.assertTrue(eh_windows_8("nt", 9200))
         self.assertTrue(eh_windows_8("nt", 9600))
@@ -398,6 +415,7 @@ class CalcularSaturacaoTests(unittest.TestCase):
             banco = BancoDadosPN(Path(diretorio) / "cadastros.db")
             banco.salvar(
                 {
+                    "Router": "Router Principal",
                     "Peça / PN": "PN-0042",
                     "SN da peça": "SN-001",
                     "Referencia-CMM": "REF-19",
@@ -413,6 +431,8 @@ class CalcularSaturacaoTests(unittest.TestCase):
 
             self.assertEqual(banco.buscar("004"), ["PN-0042"])
             self.assertEqual(banco.buscar_registros("004"), [("PN-0042", "SN-001")])
+            self.assertEqual(banco.buscar_registros("principal"), [("PN-0042", "SN-001")])
+            self.assertEqual(banco.buscar_registros("sn-001"), [("PN-0042", "SN-001")])
             cadastro = banco.obter("pn-0042", "sn-001")
             self.assertEqual(cadastro["Referencia-CMM"], "REF-19")
             self.assertEqual(cadastro["Unidade de Bico"], "mm")
@@ -464,6 +484,18 @@ class CalcularSaturacaoTests(unittest.TestCase):
             banco.salvar({"Pe\u00e7a / PN": "PN-RECENTE"}, curva_recente)
 
             self.assertEqual(banco.obter_ultima_curva(), curva_recente)
+
+    def test_banco_retorna_a_curva_do_cadastro_selecionado(self):
+        with TemporaryDirectory() as diretorio:
+            banco = BancoDadosPN(Path(diretorio) / "cadastros.db")
+            curva_a = {"tempos": [1, 2, 3, 4], "alturas": [0.1, 0.15, 0.19, 0.21]}
+            curva_b = {"tempos": [1, 2, 4, 8], "alturas": [0.1, 0.17, 0.22, 0.24]}
+            banco.salvar({"Peça / PN": "PN-100", "SN da peça": "SN-A"}, curva_a)
+            banco.salvar({"Peça / PN": "PN-100", "SN da peça": "SN-B"}, curva_b)
+
+            self.assertEqual(banco.obter_curva("PN-100", "SN-A"), curva_a)
+            self.assertEqual(banco.obter_curva("PN-100", "SN-B"), curva_b)
+            self.assertIsNone(banco.obter_curva("PN-100", "SN-INEXISTENTE"))
 
     def test_emissao_de_relatorio_sequencia_por_prefixo_ano_e_preserva_reimpressao(self):
         with TemporaryDirectory() as diretorio:
