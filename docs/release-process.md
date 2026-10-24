@@ -16,7 +16,8 @@ O publicador e a unica forma normal de mudar uma versao. Para uma versao
 2. `update_manifest.json` (versao, notas e URL publica);
 3. `packaging/ASCC System.spec` e `packaging/pyinstaller-params.txt` (nome do pacote);
 4. `dist/ASCC-System-X.Y.Z.exe` (instalador gerado);
-5. commit `Publica atualizacao X.Y.Z` e tag Git `vX.Y.Z`.
+5. `update_manifest.json` assinado localmente, incluindo nome, tamanho e SHA-256 do executável;
+6. commit `Publica atualizacao X.Y.Z` e tag Git `vX.Y.Z`.
 
 Antes de mudar qualquer arquivo, o roteiro verifica que a versao atual ja esta
 coerente em todos esses arquivos, que a nova versao e maior e que a tag nao
@@ -65,6 +66,34 @@ nenhum commit e feito. O manifesto so e enviado ao GitHub depois que o
 instalador for aceito pelo servidor. Nao edite versao, manifesto, `.spec` ou
 parametros de compilacao manualmente entre publicacoes: o roteiro bloqueia
 qualquer divergencia encontrada.
+
+## Assinatura local verificável
+
+O publicador cria uma assinatura **Ed25519** do manifesto depois do build. A
+assinatura inclui os metadados do instalador (`name`, `size` e `sha256`), e o
+aplicativo aceita atualização somente quando ela confere com a chave pública
+incorporada. Assim, uma alteração no manifesto ou no executável é detectada
+antes da distribuição.
+
+A chave privada local fica em
+`licensing/release_signing_private_key.json`, ignorada pelo Git. Ela já foi
+gerada neste ambiente. Faça uma cópia criptografada e restrita dessa chave:
+perdê-la impede assinar novas versões; expô-la permite falsificar releases.
+Não a inclua em instaladores, commits ou backups públicos.
+
+Para conferir manualmente uma release já publicada:
+
+```powershell
+.venv\Scripts\python.exe -m curvsat.tools.release_signing verify `
+  --manifest update_manifest.json `
+  --artifact dist\ASCC-System-X.Y.Z.exe
+```
+
+Essa assinatura é própria do CurvSat e serve para integridade/autoria entre os
+componentes do produto. Ela não é uma assinatura Authenticode: o Windows só
+remove a desconfiança nativa para certificados encadeados a uma CA confiável ou
+para pacotes MSIX distribuídos pela Microsoft Store. Certificado autoassinado
+continua adequado apenas para teste ou parque corporativo controlado.
 
 Para automacao por terminal:
 

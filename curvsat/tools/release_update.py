@@ -14,6 +14,8 @@ import sys
 from typing import Mapping, NoReturn
 from urllib.parse import urlsplit
 
+from curvsat.core.release_public_key import RELEASE_MANIFEST_PUBLIC_KEY
+from curvsat.security.release_signing import load_private_key, sign_manifest, verify_artifact, verify_manifest
 
 ROOT = Path(__file__).resolve().parents[2]
 APP_VERSION_FILE = ROOT / "curvsat" / "core" / "version.py"
@@ -21,6 +23,7 @@ MANIFEST_FILE = ROOT / "update_manifest.json"
 SPEC_FILE = ROOT / "packaging" / "ASCC System.spec"
 COMPILE_PARAMS_FILE = ROOT / "packaging" / "pyinstaller-params.txt"
 ENV_FILE = ROOT / ".release.env"
+SIGNING_KEY_FILE = ROOT / "licensing" / "release_signing_private_key.json"
 ARTIFACT_PREFIX = "ASCC-System"
 DEFAULT_DOWNLOAD_BASE_URL = "https://merotec.online/download"
 DEFAULT_UPLOAD_URL = "https://merotec.online/api/releases/upload"
@@ -122,6 +125,8 @@ def validate_release_state(version: str, rendered: Mapping[Path, str] | None = N
     download_name = Path(urlsplit(str(manifest.get("download_url", ""))).path).name
     if download_name != f"{expected_name}.exe":
         fail(f"{MANIFEST_FILE.name} nao aponta para {expected_name}.exe.")
+    if rendered is None and not verify_manifest(manifest, RELEASE_MANIFEST_PUBLIC_KEY):
+        fail(f"{MANIFEST_FILE.name} nao possui uma assinatura local valida.")
 
     spec_source = _source(SPEC_FILE, rendered)
     if not re.search(rf"(?m)^\s*name='{re.escape(expected_name)}'", spec_source):
@@ -138,6 +143,8 @@ def render_release_files(version: str, notes: str, download_url: str) -> dict[Pa
     manifest = json.loads(MANIFEST_FILE.read_text(encoding="utf-8"))
     if not isinstance(manifest, dict) or manifest.get("app") != "CurvSat":
         fail("update_manifest.json nao contem um manifesto valido do CurvSat.")
+    manifest.pop("artifact", None)
+    manifest.pop("local_signature", None)
     manifest.update({"version": version, "release_notes": notes, "download_url": download_url})
     manifest_text = json.dumps(manifest, ensure_ascii=False, indent=2) + "\n"
 
@@ -238,6 +245,25 @@ def validate_artifact(artifact: Path) -> None:
         fail(f"Executavel nao encontrado ou vazio: {artifact.relative_to(ROOT)}")
 
 
+def sign_release_manifest(artifact: Path) -> None:
+    """Assina o manifesto depois do build, vinculando-o ao hash do executável."""
+    if not SIGNING_KEY_FILE.is_file():
+        fail(
+            "Chave de assinatura local ausente. Execute: "
+            "python -m curvsat.tools.release_signing create-key"
+        )
+    try:
+        manifest = json.loads(MANIFEST_FILE.read_text(encoding="utf-8"))
+        signed = sign_manifest(manifest, artifact, load_private_key(SIGNING_KEY_FILE))
+    except (OSError, ValueError, json.JSONDecodeError) as error:
+        fail(f"Nao foi possivel assinar o manifesto: {error}")
+    if not verify_manifest(signed, RELEASE_MANIFEST_PUBLIC_KEY):
+        fail("A chave privada local nao corresponde a chave publica incorporada no aplicativo.")
+    if not verify_artifact(artifact, signed):
+        fail("A verificacao do executavel assinado falhou.")
+    MANIFEST_FILE.write_text(json.dumps(signed, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Gera e publica uma atualizacao do CurvSat.")
     parser.add_argument("version", help="Nova versao no formato X.Y.Z")
@@ -286,6 +312,8 @@ def main() -> int:
         if not args.no_build:
             run([sys.executable, "-m", "PyInstaller", "--noconfirm", str(SPEC_FILE.relative_to(ROOT))], description="Gerando executavel")
         validate_artifact(artifact)
+        sign_release_manifest(artifact)
+        validate_release_state(version)
         upload_to_endpoint(upload_url, artifact, version)
     except BaseException:
         write_release_files(originals)

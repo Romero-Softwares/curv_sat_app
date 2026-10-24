@@ -4,3 +4,4 @@ numpy
 scipy
 fastapi
 uvicorn
+cryptography>=42,<46

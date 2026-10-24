@@ -8,7 +8,9 @@ import re
 from typing import Any
 from urllib.request import Request, urlopen
 
+from curvsat.core.release_public_key import RELEASE_MANIFEST_PUBLIC_KEY
 from curvsat.core.version import APP_NAME, APP_VERSION
+from curvsat.security.release_signing import verify_manifest
 
 
 UPDATE_MANIFEST_URL = (
@@ -64,6 +66,8 @@ def check_for_update(
     try:
         manifest = _read_manifest(manifest_url, timeout)
         if manifest.get("app") != APP_NAME:
+            return None
+        if not verify_manifest(manifest, RELEASE_MANIFEST_PUBLIC_KEY):
             return None
         version = str(manifest["version"]).strip()
         if not is_newer_version(version, current_version):

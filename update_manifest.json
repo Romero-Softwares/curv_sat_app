@@ -2,5 +2,16 @@
   "app": "CurvSat",
   "version": "1.0.3",
   "release_notes": "Reorganizacao interna do projeto por modulos, com lancadores e fluxo de publicacao preservados.",
-  "download_url": "https://merotec.online/download/ASCC-System-1.0.3.exe"
+  "download_url": "https://merotec.online/download/ASCC-System-1.0.3.exe",
+  "artifact": {
+    "name": "ASCC-System-1.0.3.exe",
+    "sha256": "e7e2ffb81138263f74028cf564c7e18b0516dea08e797ba9ee9b672f5bd42399",
+    "size": 73300140
+  },
+  "local_signature": {
+    "format": "merotec.release-manifest.v1",
+    "algorithm": "Ed25519",
+    "key_id": "ed25519:e587daae6f8fd5e563622814",
+    "value": "b2BcXOxD4ffB1iVoX2SX7miATdwEkz09gs3upPqV606mly0JHd0eT0eUw2ZiQAEd7vpN_zjYN9U3HG4eiw5pCQ"
+  }
 }
