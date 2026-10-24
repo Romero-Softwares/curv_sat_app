@@ -3,6 +3,7 @@ from pathlib import Path
 
 
 PROJECT_DIR = Path(SPECPATH).parent
+VERSION_INFO_FILE = PROJECT_DIR / 'packaging' / 'version_info.txt'
 
 
 a = Analysis(
@@ -40,4 +41,5 @@ exe = EXE(
     codesign_identity=None,
     entitlements_file=None,
     icon=[str(PROJECT_DIR / 'assets' / 'icons' / 'logo.ico')],
+    version=str(VERSION_INFO_FILE),
 )

@@ -22,6 +22,7 @@ APP_VERSION_FILE = ROOT / "curvsat" / "core" / "version.py"
 MANIFEST_FILE = ROOT / "update_manifest.json"
 SPEC_FILE = ROOT / "packaging" / "ASCC System.spec"
 COMPILE_PARAMS_FILE = ROOT / "packaging" / "pyinstaller-params.txt"
+VERSION_INFO_FILE = ROOT / "packaging" / "version_info.txt"
 ENV_FILE = ROOT / ".release.env"
 SIGNING_KEY_FILE = ROOT / "licensing" / "release_signing_private_key.json"
 ARTIFACT_PREFIX = "ASCC-System"
@@ -131,10 +132,30 @@ def validate_release_state(version: str, rendered: Mapping[Path, str] | None = N
     spec_source = _source(SPEC_FILE, rendered)
     if not re.search(rf"(?m)^\s*name='{re.escape(expected_name)}'", spec_source):
         fail(f"{SPEC_FILE.name} nao gera {expected_name}.exe.")
+    if not re.search(r"(?m)^\s*version=str\(VERSION_INFO_FILE\),", spec_source):
+        fail(f"{SPEC_FILE.name} nao incorpora {VERSION_INFO_FILE.name}.")
+
+    version_info_source = _source(VERSION_INFO_FILE, rendered)
+    version_tuple = ", ".join((*version.split("."), "0"))
+    for field in ("filevers", "prodvers"):
+        if f"{field}=({version_tuple})" not in version_info_source:
+            fail(f"{VERSION_INFO_FILE.name} nao informa {field}={version_tuple}.")
+    for field, value in {
+        "FileVersion": version,
+        "ProductVersion": version,
+        "OriginalFilename": f"{expected_name}.exe",
+    }.items():
+        if f"StringStruct('{field}', '{value}')" not in version_info_source:
+            fail(f"{VERSION_INFO_FILE.name} nao informa {field} corretamente.")
+    for field in ("CompanyName", "FileDescription", "LegalCopyright", "ProductName"):
+        if not re.search(rf"StringStruct\('{field}', '\S", version_info_source):
+            fail(f"{VERSION_INFO_FILE.name} nao informa {field}.")
 
     compile_source = _source(COMPILE_PARAMS_FILE, rendered)
     if f'--name "{expected_name}"' not in compile_source:
         fail(f"{COMPILE_PARAMS_FILE.name} nao gera {expected_name}.exe.")
+    if '--version-file "packaging/version_info.txt"' not in compile_source:
+        fail(f"{COMPILE_PARAMS_FILE.name} nao incorpora {VERSION_INFO_FILE.name}.")
 
 
 def render_release_files(version: str, notes: str, download_url: str) -> dict[Path, str]:
@@ -163,11 +184,37 @@ def render_release_files(version: str, notes: str, download_url: str) -> dict[Pa
     if compile_count != 1:
         fail(f"Nao foi possivel atualizar --name em {COMPILE_PARAMS_FILE.name}.")
 
+    version_info_source = VERSION_INFO_FILE.read_text(encoding="utf-8")
+    version_parts = version.split(".")
+    version_tuple = ", ".join((*version_parts, "0"))
+    version_info_text = version_info_source
+    for field in ("filevers", "prodvers"):
+        version_info_text, count = re.subn(
+            rf"(?m)^(\s*{field}=)\([^)]*\)(,)$",
+            rf"\g<1>({version_tuple})\g<2>",
+            version_info_text,
+        )
+        if count != 1:
+            fail(f"Nao foi possivel atualizar {field} em {VERSION_INFO_FILE.name}.")
+    for field, value in {
+        "FileVersion": version,
+        "ProductVersion": version,
+        "OriginalFilename": f"{executable_name}.exe",
+    }.items():
+        version_info_text, count = re.subn(
+            rf"(StringStruct\('{field}', ')[^']*('\))",
+            rf"\g<1>{value}\g<2>",
+            version_info_text,
+        )
+        if count != 1:
+            fail(f"Nao foi possivel atualizar {field} em {VERSION_INFO_FILE.name}.")
+
     rendered = {
         APP_VERSION_FILE: app_version,
         MANIFEST_FILE: manifest_text,
         SPEC_FILE: spec_text,
         COMPILE_PARAMS_FILE: compile_text,
+        VERSION_INFO_FILE: version_info_text,
     }
     validate_release_state(version, rendered)
     return rendered

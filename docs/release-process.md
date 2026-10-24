@@ -14,7 +14,8 @@ O publicador e a unica forma normal de mudar uma versao. Para uma versao
 
 1. `curvsat/core/version.py` (versao exibida e enviada pelo aplicativo);
 2. `update_manifest.json` (versao, notas e URL publica);
-3. `packaging/ASCC System.spec` e `packaging/pyinstaller-params.txt` (nome do pacote);
+3. `packaging/ASCC System.spec`, `packaging/pyinstaller-params.txt` e
+   `packaging/version_info.txt` (nome e metadados do executável Windows);
 4. `dist/ASCC-System-X.Y.Z.exe` (instalador gerado);
 5. `update_manifest.json` assinado localmente, incluindo nome, tamanho e SHA-256 do executável;
 6. commit `Publica atualizacao X.Y.Z` e tag Git `vX.Y.Z`.
