@@ -13,6 +13,7 @@ from curvsat.core import paths as app_paths
 from curvsat.application import (
     AlmenApp,
     TIPOS_LAMINA,
+    avaliar_validade_curva,
     calcular_saturacao,
     compensar_desvio_lamina,
     configurar_escala_vertical,
@@ -23,6 +24,7 @@ from curvsat.application import (
 )
 from curvsat.reporting.reports import (
     BancoDadosPN,
+    avaliar_intensidade_requerida,
     CAMPO_UNIDADE_RELATORIO,
     calcular_sha256_relatorio,
     criar_dados_relatorio,
@@ -174,10 +176,93 @@ class CalcularSaturacaoTests(unittest.TestCase):
             0.1,
             places=10,
         )
+        self.assertTrue(resultado["validacao"]["valida"])
+        self.assertEqual(resultado["validacao"]["motivos"], [])
+
+    def test_informa_curva_invalida_sem_cobertura_ate_2t(self):
+        resultado = calcular_saturacao(
+            [1.0, 2.0, 4.0, 8.0],
+            [0.10, 0.17, 0.22, 0.24],
+        )
+
+        self.assertFalse(resultado["validacao"]["valida"])
+        self.assertIn("curve_invalid_2t", resultado["validacao"]["motivos"])
+
+    def test_mantem_t_calculado_quando_primeira_medicao_ja_esta_saturada(self):
+        resultado = calcular_saturacao(
+            [1.0, 2.0, 4.0, 8.0],
+            [0.23, 0.24, 0.244, 0.245],
+        )
+
+        self.assertLess(resultado["t_sat"], 1.0)
+        self.assertEqual(resultado["validacao"]["tipo_curva"], "curve_type_1")
+        self.assertFalse(resultado["validacao"]["valida"])
+        self.assertIn("curve_invalid_before_t", resultado["validacao"]["motivos"])
+
+    def test_reprova_curva_tipo_2_com_aumento_maior_que_dez_por_cento(self):
+        validacao = avaliar_validade_curva(
+            [1.0, 2.0, 4.0, 8.0],
+            [0.20, 0.25, 0.26, 0.27],
+            1.0,
+            2.0,
+            0.20,
+            0.25,
+            "curve_type_2",
+        )
+
+        self.assertFalse(validacao["valida"])
+        self.assertIn("curve_invalid_type2_10_percent", validacao["motivos"])
+
+    def test_reprova_curva_com_ajuste_sem_aderencia_aos_dados(self):
+        resultado = calcular_saturacao(
+            [5.0, 10.0, 15.0, 20.0],
+            [0.013, 0.013, 0.014, 0.014],
+        )
+
+        self.assertAlmostEqual(resultado["t_sat"], 4.01229, places=5)
+        self.assertAlmostEqual(resultado["t_2sat"], 8.02458, places=5)
+        self.assertLess(resultado["r2"], 0.80)
+        self.assertFalse(resultado["validacao"]["valida"])
+        self.assertIn("curve_invalid_before_t", resultado["validacao"]["motivos"])
+        self.assertIn("curve_invalid_fit", resultado["validacao"]["motivos"])
+
+    def test_leitura_isolada_menor_nao_invalida_curva_ajustada(self):
+        resultado = calcular_saturacao(
+            [5.0, 7.5, 10.0, 16.0, 25.0],
+            [0.0090, 0.0104, 0.0110, 0.0120, 0.0110],
+        )
+
+        self.assertGreaterEqual(resultado["r2"], 0.85)
+        self.assertTrue(resultado["validacao"]["valida"])
+        self.assertEqual(resultado["validacao"]["motivos"], [])
+
+    def test_algoritmo_atende_conjuntos_de_referencia_j2597(self):
+        conjuntos = (
+            ([4, 6, 8, 12], [0.0060, 0.0069, 0.0070, 0.0070], 0.0064),
+            ([2.5, 5, 10, 20], [0.0030, 0.0036, 0.0044, 0.0044], 0.0040),
+            ([3, 6, 12, 24], [0.0065, 0.0081, 0.0088, 0.0090], 0.0080),
+            ([1, 2, 3, 4], [0.0038, 0.0051, 0.0052, 0.0053], 0.0048),
+            ([4, 6, 8, 12], [0.0062, 0.0070, 0.0072, 0.0072], 0.0066),
+            ([1.1, 2.3, 4.5, 9], [0.0046, 0.0087, 0.0101, 0.0107], 0.0098),
+            ([2, 3, 4, 6], [0.0055, 0.0066, 0.0067, 0.0068], 0.0063),
+            ([0.25, 0.5, 0.75, 1, 2, 4], [0.0081, 0.0096, 0.0100, 0.0103, 0.0108, 0.0113], 0.0093),
+            ([0.25, 0.5, 0.75, 1, 2, 4], [0.0108, 0.0129, 0.0137, 0.0144, 0.0157, 0.0164], 0.0137),
+            ([0.25, 0.5, 0.75, 1, 2, 4], [0.0045, 0.0054, 0.0059, 0.0058, 0.0062, 0.0064], 0.0054),
+        )
+
+        for tempos, alturas, intensidade_esperada in conjuntos:
+            with self.subTest(tempos=tempos):
+                resultado = calcular_saturacao(tempos, alturas)
+                self.assertTrue(resultado["validacao"]["valida"])
+                self.assertLessEqual(abs(resultado["h_sat"] - intensidade_esperada), 0.001)
 
     def test_exige_quatro_medicoes_validas(self):
         with self.assertRaisesRegex(ValueError, "pelo menos 4 medições"):
             calcular_saturacao([1, 2, 3], [0.1, 0.2, 0.22])
+
+    def test_exige_quatro_exposicoes_distintas(self):
+        with self.assertRaisesRegex(ValueError, "quatro valores de exposição distintos"):
+            calcular_saturacao([1, 1, 2, 2], [0.1, 0.12, 0.2, 0.22])
 
     def test_rejeita_medicoes_sem_variacao_de_altura(self):
         with self.assertRaisesRegex(ValueError, "precisam variar"):
@@ -276,6 +361,10 @@ class CalcularSaturacaoTests(unittest.TestCase):
         self.assertIn("Eixo &lt;A&gt;", relatorio)
         self.assertNotIn(">ROUTER<", relatorio)
         self.assertIn("Router 01", relatorio)
+        self.assertIn(tr("curve_valid"), relatorio)
+        self.assertNotIn("Resultado automático", relatorio)
+        self.assertNotIn("Tipo 1", relatorio)
+        self.assertNotIn("qualificação do algoritmo pendente", relatorio)
         self.assertNotIn("Ordem de Serviço", relatorio)
         self.assertIn("SAE J443 e SAE J2597", relatorio)
         self.assertIn("Tempo de saturação (T)", relatorio)
@@ -397,6 +486,20 @@ class CalcularSaturacaoTests(unittest.TestCase):
         self.assertEqual(extrair_faixa_intensidade("0,014-0.018A"), (0.014, 0.018))
         self.assertIsNone(extrair_faixa_intensidade("0,014A"))
         self.assertIsNone(extrair_faixa_intensidade("0.018-0.014A"))
+
+    def test_avisa_h_t_fora_da_faixa_requerida_selecionada(self):
+        avaliacao = avaliar_intensidade_requerida(0.0175, "0,008-0.016A", "in", "in")
+
+        self.assertFalse(avaliacao["conforme"])
+        self.assertEqual(avaliacao["limite_inferior"], 0.008)
+        self.assertEqual(avaliacao["limite_superior"], 0.016)
+
+    def test_avalia_faixa_requerida_na_unidade_do_grafico(self):
+        avaliacao = avaliar_intensidade_requerida(0.4, "0,014-0,018A", "in", "mm")
+
+        self.assertTrue(avaliacao["conforme"])
+        self.assertAlmostEqual(avaliacao["limite_inferior"], 0.3556)
+        self.assertAlmostEqual(avaliacao["limite_superior"], 0.4572)
 
     def test_destaque_de_intensidade_cria_area_e_duas_linhas_sem_alterar_grafico(self):
         figura = Figure()

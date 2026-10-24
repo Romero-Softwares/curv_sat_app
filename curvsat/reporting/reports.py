@@ -6,6 +6,7 @@ import base64
 import hashlib
 import html
 import json
+import math
 import os, sys
 import re
 import sqlite3
@@ -135,6 +136,32 @@ def extrair_faixa_intensidade(valor):
     if limite_inferior < 0 or limite_superior <= limite_inferior:
         return None
     return limite_inferior, limite_superior
+
+
+def avaliar_intensidade_requerida(intensidade_calculada, intensidade_requerida, unidade_requerida, unidade_grafico):
+    """Compara H(T) à faixa cadastrada, convertida para a unidade do gráfico.
+
+    Uma faixa ausente ou inválida não configura um requisito selecionado e não
+    produz avaliação. Os limites retornados já estão na unidade exibida.
+    """
+    faixa = extrair_faixa_intensidade(intensidade_requerida)
+    if faixa is None:
+        return None
+    try:
+        intensidade_calculada = float(intensidade_calculada)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(intensidade_calculada):
+        return None
+
+    limite_inferior, limite_superior = (
+        _converter_unidade_arco(valor, unidade_requerida, unidade_grafico) for valor in faixa
+    )
+    return {
+        "conforme": limite_inferior <= intensidade_calculada <= limite_superior,
+        "limite_inferior": limite_inferior,
+        "limite_superior": limite_superior,
+    }
 
 
 def _converter_unidade_arco(valor, unidade_origem, unidade_destino):
@@ -971,6 +998,15 @@ def montar_relatorio_html(
         (tr("fit"), f"{resultado['r2']:.4f}"),
         (tr("measurements"), str(len(resultado['h_data_compensada']))),
     ]
+    validacao = resultado.get("validacao")
+    if validacao:
+        if validacao["valida"]:
+            status_validacao = tr("curve_valid")
+        else:
+            motivos = "; ".join(tr(motivo) for motivo in validacao["motivos"])
+            status_validacao = tr("curve_invalid", reasons=motivos)
+        resultados.append((tr("curve_validation"), status_validacao))
+        resultados.append((tr("curve_2t_increase"), f"{validacao['aumento_2t'] * 100:.2f}%"))
     data_emissao = (emitido_em or datetime.now()).strftime("%d/%m/%Y %H:%M")
     logo_empresa = _logo_empresa_data_uri(caminho_logo)
     rotulo_pagina = html.escape(tr("report_page"))

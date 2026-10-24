@@ -74,6 +74,7 @@ from curvsat.reporting.reports import (
     BancoDadosPN,
     abrir_historico_relatorios,
     abrir_relatorio,
+    avaliar_intensidade_requerida,
     criar_dados_relatorio,
     destacar_faixa_intensidade,
     extrair_faixa_intensidade,
@@ -237,6 +238,53 @@ def compensar_desvio_lamina(alturas, desvio_lamina=0.0):
     return alturas_compensadas
 
 
+R2_MINIMO_CURVA_VALIDA = 0.80
+
+
+def avaliar_validade_curva(
+    t_data,
+    h_data,
+    t_sat,
+    t_2sat,
+    h_sat,
+    h_2sat,
+    tipo_curva="curve_type_1",
+    r2=None,
+):
+    """Decide automaticamente se a curva atende ao critério SAE J443.
+
+    Para uma curva Tipo 1, T é obtido no ajuste em que o aumento até 2T é de
+    10%. Para uma curva Tipo 2, a menor exposição é a intensidade somente se
+    a curva ajustada crescer no máximo 10% ao dobrar essa exposição. Em ambos
+    os casos, os dados precisam cobrir T e 2T. A curva aplicada ao critério é
+    o melhor ajuste suave. Para impedir que uma curva sem aderência aos dados
+    seja aprovada apenas por cobrir T e 2T, a decisão também exige R² >= 0,80.
+
+    A decisão qualifica automaticamente os dados informados para o cálculo
+    de intensidade.
+    """
+    t_data = np.asarray(t_data, dtype=float)
+    h_data = np.asarray(h_data, dtype=float)
+    motivos = []
+    aumento_2t = (h_2sat - h_sat) / h_sat if h_sat > 0 else np.inf
+
+    if not np.any(t_data <= t_sat):
+        motivos.append("curve_invalid_before_t")
+    if np.max(t_data) < t_2sat:
+        motivos.append("curve_invalid_2t")
+    if tipo_curva == "curve_type_2" and aumento_2t > 0.10 + np.finfo(float).eps:
+        motivos.append("curve_invalid_type2_10_percent")
+    if r2 is not None and (not np.isfinite(r2) or r2 < R2_MINIMO_CURVA_VALIDA):
+        motivos.append("curve_invalid_fit")
+
+    return {
+        "valida": not motivos,
+        "motivos": motivos,
+        "aumento_2t": aumento_2t,
+        "tipo_curva": tipo_curva,
+    }
+
+
 def calcular_saturacao(t_data, h_data, desvio_lamina=0.0):
     """Ajusta a curva compensada e determina T e 2T pela regra dos 10%."""
     t_data = np.asarray(t_data, dtype=float)
@@ -255,7 +303,7 @@ def calcular_saturacao(t_data, h_data, desvio_lamina=0.0):
         raise ValueError(tr("min_measurements"))
     if np.count_nonzero(h_data_compensada) < 4:
         raise ValueError(tr("min_nonzero_arc"))
-    if len(np.unique(t_data)) < 2:
+    if len(np.unique(t_data)) < 4:
         raise ValueError(tr("distinct_exposure"))
     if np.ptp(h_data_compensada) == 0:
         raise ValueError(tr("varying_arc"))
@@ -277,6 +325,11 @@ def calcular_saturacao(t_data, h_data, desvio_lamina=0.0):
     if b <= np.finfo(float).eps:
         raise ValueError(tr("saturation_rate"))
 
+    # T é sempre determinado pelo ajuste exponencial: é o ponto em que a
+    # altura calculada em 2T cresce 10% em relação à altura em T. A cobertura
+    # experimental é avaliada separadamente; ela não pode substituir o valor
+    # calculado de T pela primeira exposição medida.
+    tipo_curva = "curve_type_1"
     t_sat = np.log(10) / b
     h_sat = almen_model(t_sat, A, b)
     t_2sat = 2 * t_sat
@@ -285,6 +338,16 @@ def calcular_saturacao(t_data, h_data, desvio_lamina=0.0):
     residuos = h_data_compensada - almen_model(t_data, A, b)
     variacao_total = np.sum((h_data_compensada - np.mean(h_data_compensada)) ** 2)
     r2 = 1 - (np.sum(residuos**2) / variacao_total)
+    validacao = avaliar_validade_curva(
+        t_data,
+        h_data_compensada,
+        t_sat,
+        t_2sat,
+        h_sat,
+        h_2sat,
+        tipo_curva,
+        r2,
+    )
 
     return {
         "A": A,
@@ -294,6 +357,7 @@ def calcular_saturacao(t_data, h_data, desvio_lamina=0.0):
         "t_2sat": t_2sat,
         "h_2sat": h_2sat,
         "r2": r2,
+        "validacao": validacao,
         "desvios_lamina": np.broadcast_to(np.asarray(desvio_lamina, dtype=float), h_data.shape).copy(),
         "h_data_compensada": h_data_compensada,
     }
@@ -591,25 +655,24 @@ class AlmenApp(ctk.CTk):
 
         res_frame = ctk.CTkFrame(left_frame, fg_color="#1e1e1e", corner_radius=8)
         res_frame.grid(row=5, column=0, padx=15, pady=(0, 10), sticky="ew")
-        res_frame.grid_columnconfigure((0, 1), weight=1)
-        self.lbl_tsat = ctk.CTkLabel(res_frame, text=f"{self.t('saturation_time')}: --", font=ctk.CTkFont(size=13, weight="bold"))
-        self.lbl_tsat.grid(row=0, column=0, padx=10, pady=(5, 2), sticky="w")
-        self.lbl_hsat = ctk.CTkLabel(
-            res_frame, text=f"{self.t('intensity')}: --", font=ctk.CTkFont(size=13, weight="bold"), text_color="#2ecc71"
-        )
-        self.lbl_hsat.grid(row=0, column=0, padx=10, pady=(5, 2), sticky="w")
-        self.lbl_t2sat = ctk.CTkLabel(res_frame, text=f"{self.t('point_2t')}: --", font=ctk.CTkFont(size=12))
-        self.lbl_t2sat.grid(row=1, column=0, padx=10, pady=2, sticky="w")
-        self.lbl_h2sat = ctk.CTkLabel(res_frame, text=f"{self.t('height_2t')}: --", font=ctk.CTkFont(size=12))
-        self.lbl_h2sat.grid(row=1, column=1, padx=10, pady=2, sticky="w")
-        self.lbl_r2 = ctk.CTkLabel(res_frame, text=f"{self.t('fit')}: --", font=ctk.CTkFont(size=12), text_color="#3498db")
-        self.lbl_r2.grid(row=2, column=0, padx=10, pady=(2, 5), sticky="w")
-        self.lbl_compensacao = ctk.CTkLabel(
+        res_frame.grid_columnconfigure(0, weight=1)
+        self.lbl_tsat = ctk.CTkLabel(
             res_frame,
-            text=f"{self.t('deviations')}: --",
-            font=ctk.CTkFont(size=11),
+            text=f"{self.t('saturation_time')}: --",
+            font=ctk.CTkFont(size=13, weight="bold"),
+            anchor="w",
+            justify="left",
         )
-        self.lbl_compensacao.grid(row=2, column=1, padx=10, pady=(2, 5), sticky="w")
+        self.lbl_tsat.grid(row=0, column=0, padx=10, pady=(5, 2), sticky="ew")
+        self.lbl_hsat = ctk.CTkLabel(
+            res_frame,
+            text=f"{self.t('intensity')}: --",
+            font=ctk.CTkFont(size=13, weight="bold"),
+            text_color="#2ecc71",
+            anchor="w",
+            justify="left",
+        )
+        self.lbl_hsat.grid(row=1, column=0, padx=10, pady=2, sticky="ew")
         self.lbl_status = ctk.CTkLabel(left_frame, text="", font=ctk.CTkFont(size=11), text_color="#e74c3c")
         self.lbl_status.grid(row=6, column=0, padx=15, pady=(0, 10))
 
@@ -1274,21 +1337,37 @@ class AlmenApp(ctk.CTk):
 
             self.lbl_tsat.configure(text=f"{self.t('saturation_time')}: {t_sat:.2f} {self.abreviacao_exposicao}")
             self.lbl_hsat.configure(text=f"{self.t('intensity')}: {h_sat:.4f} {self.unidade_arco} {self.tipo_lamina}")
-            self.lbl_t2sat.configure(text=f"{self.t('point_2t')}: {t_2sat:.2f} {self.abreviacao_exposicao}")
-            self.lbl_h2sat.configure(text=f"{self.t('height_2t')}: {h_2sat:.4f} {self.unidade_arco}")
-            self.lbl_r2.configure(text=f"{self.t('fit')}: {r2:.4f}")
-            desvios_aplicados = desvios[np.abs(desvios) > np.finfo(float).eps]
-            if len(desvios_aplicados):
-                self.lbl_compensacao.configure(
-                    text=(
-                        f"{self.t('deviations')}: {len(desvios_aplicados)}/{len(desvios)} "
-                        f"({np.min(desvios_aplicados):+.4f} a {np.max(desvios_aplicados):+.4f} "
-                        f"{self.unidade_arco})"
-                    )
+            avaliacao_intensidade = None
+            if self._intensidade_destaque_exemplo:
+                intensidade_requerida, unidade_requerida = self._intensidade_destaque_exemplo
+                avaliacao_intensidade = avaliar_intensidade_requerida(
+                    h_sat,
+                    intensidade_requerida,
+                    unidade_requerida,
+                    self.unidade_arco,
                 )
+            aviso_intensidade = ""
+            if avaliacao_intensidade and not avaliacao_intensidade["conforme"]:
+                aviso_intensidade = self.t(
+                    "intensity_out_of_required_range",
+                    value=h_sat,
+                    unit=self.unidade_arco,
+                    lower=avaliacao_intensidade["limite_inferior"],
+                    upper=avaliacao_intensidade["limite_superior"],
+                )
+                self.lbl_status.configure(text=aviso_intensidade, text_color="#e74c3c")
+            validacao = resultado["validacao"]
+            if validacao["valida"]:
+                texto_validacao = self.t("curve_valid")
+                cor_validacao = "#16803c"
             else:
-                self.lbl_compensacao.configure(text=f"{self.t('deviations')}: {self.t('none_applied')}")
-
+                motivos = "; ".join(self.t(motivo) for motivo in validacao["motivos"])
+                texto_validacao = self.t("curve_invalid", reasons=motivos)
+                cor_validacao = "#c0392b"
+            texto_criterio = (
+                f"{self.t('curve_2t_increase')}: "
+                f"{validacao['aumento_2t'] * 100:.2f}%"
+            )
             self.ax.clear()
             self._format_axes()
             t_max_plot = max(float(np.max(t_data)) * 1.15, t_2sat * 1.05)
@@ -1316,15 +1395,40 @@ class AlmenApp(ctk.CTk):
             self.ax.set_xlabel(f"{self.t('exposure')} ({self.abreviacao_exposicao})")
             self.ax.set_ylabel(f"{self.t('arc_height')} ({self.unidade_arco})")
             self.ax.set_xlim(0, max(t_smooth))
+            self.ax.text(
+                0.02,
+                0.98,
+                f"{texto_validacao}\n{texto_criterio}",
+                transform=self.ax.transAxes,
+                va="top",
+                ha="left",
+                fontsize=8.5,
+                fontweight="bold",
+                color=cor_validacao,
+                linespacing=1.35,
+                bbox={"boxstyle": "round,pad=0.45", "facecolor": "#ffffff", "edgecolor": cor_validacao, "alpha": 0.92},
+                zorder=10,
+            )
+            if aviso_intensidade:
+                self.ax.text(
+                    0.02,
+                    0.84,
+                    aviso_intensidade,
+                    transform=self.ax.transAxes,
+                    va="top",
+                    ha="left",
+                    fontsize=8.5,
+                    fontweight="bold",
+                    color="#c0392b",
+                    bbox={"boxstyle": "round,pad=0.45", "facecolor": "#fff5f5", "edgecolor": "#c0392b", "alpha": 0.95},
+                    zorder=10,
+                )
             limites_intensidade = ()
-            if self._intensidade_destaque_exemplo:
-                intensidade, unidade_intensidade = self._intensidade_destaque_exemplo
-                faixa_intensidade = extrair_faixa_intensidade(intensidade)
-                if faixa_intensidade:
-                    limites_intensidade = tuple(
-                        converter_arco(valor, unidade_intensidade, self.unidade_arco)
-                        for valor in faixa_intensidade
-                    )
+            if avaliacao_intensidade:
+                limites_intensidade = (
+                    avaliacao_intensidade["limite_inferior"],
+                    avaliacao_intensidade["limite_superior"],
+                )
             configurar_escala_vertical(
                 self.ax,
                 (*h_data_compensada, h_sat, h_2sat),

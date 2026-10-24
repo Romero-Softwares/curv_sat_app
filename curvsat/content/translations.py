@@ -98,8 +98,15 @@ _TEXTS["PT"].update({
     "data_vectors": "Tempo e altura devem ser vetores do mesmo tamanho.", "data_finite": "Tempo e altura devem conter apenas números finitos.",
     "exposure_negative": "Os tempos de exposição não podem ser negativos.", "arc_negative": "As alturas de arco não podem ser negativas.",
     "min_measurements": "A curva exige pelo menos 4 medições válidas.", "min_nonzero_arc": "A curva exige pelo menos 4 alturas de arco não nulas.",
-    "distinct_exposure": "Informe pelo menos dois valores de exposição distintos.", "varying_arc": "As alturas precisam variar para calcular a saturação.",
+    "distinct_exposure": "Informe pelo menos quatro valores de exposição distintos.", "varying_arc": "As alturas precisam variar para calcular a saturação.",
     "saturation_rate": "Não foi possível determinar uma taxa de saturação positiva.",
+    "curve_valid": "CURVA VÁLIDA — critério SAE J443 atendido.",
+    "curve_invalid": "CURVA NÃO VÁLIDA — {reasons}",
+    "curve_invalid_before_t": "sem medicao em/antes de T", "curve_invalid_2t": "a exposicao maxima nao alcanca 2T",
+    "curve_invalid_descending_arc": "a altura medida diminui com o aumento da exposicao",
+        "curve_invalid_type2_10_percent": "o aumento de T para 2T excede 10%", "curve_invalid_fit": "o ajuste aos dados é insuficiente (R² abaixo de 0,80)",
+    "curve_validation": "Validação da curva", "curve_2t_increase": "Aumento de T para 2T",
+    "intensity_out_of_required_range": "ATENÇÃO: H(T) = {value:.4f} {unit} está fora da faixa requerida ({lower:.4f} a {upper:.4f} {unit}).",
 })
 _TEXTS["EN"].update({
     "required_peening_intensity": "Peening intensity",
@@ -117,8 +124,15 @@ _TEXTS["EN"].update({
     "data_vectors": "Time and height must be vectors of the same size.", "data_finite": "Time and height must contain only finite numbers.",
     "exposure_negative": "Exposure times cannot be negative.", "arc_negative": "Arc heights cannot be negative.",
     "min_measurements": "The curve requires at least 4 valid measurements.", "min_nonzero_arc": "The curve requires at least 4 non-zero arc heights.",
-    "distinct_exposure": "Enter at least two distinct exposure values.", "varying_arc": "Arc heights must vary to calculate saturation.",
+    "distinct_exposure": "Enter at least four distinct exposure values.", "varying_arc": "Arc heights must vary to calculate saturation.",
     "saturation_rate": "Could not determine a positive saturation rate.",
+    "curve_valid": "VALID CURVE — SAE J443 criterion met.",
+    "curve_invalid": "INVALID CURVE — {reasons}",
+    "curve_invalid_before_t": "no measurement at/before T", "curve_invalid_2t": "maximum exposure does not reach 2T",
+    "curve_invalid_descending_arc": "measured arc height decreases as exposure increases",
+        "curve_invalid_type2_10_percent": "the increase from T to 2T exceeds 10%", "curve_invalid_fit": "the fit to the data is insufficient (R² below 0.80)",
+    "curve_validation": "Curve validation", "curve_2t_increase": "Increase from T to 2T",
+    "intensity_out_of_required_range": "WARNING: H(T) = {value:.4f} {unit} is outside the required range ({lower:.4f} to {upper:.4f} {unit}).",
 })
 _TEXTS["ES"].update({
     "required_peening_intensity": "Intensidad de peening",
@@ -136,8 +150,15 @@ _TEXTS["ES"].update({
     "data_vectors": "El tiempo y la altura deben ser vectores del mismo tamaño.", "data_finite": "El tiempo y la altura solo deben contener números finitos.",
     "exposure_negative": "Los tiempos de exposición no pueden ser negativos.", "arc_negative": "Las alturas de arco no pueden ser negativas.",
     "min_measurements": "La curva requiere al menos 4 mediciones válidas.", "min_nonzero_arc": "La curva requiere al menos 4 alturas de arco no nulas.",
-    "distinct_exposure": "Introduzca al menos dos valores de exposición distintos.", "varying_arc": "Las alturas de arco deben variar para calcular la saturación.",
+    "distinct_exposure": "Introduzca al menos cuatro valores de exposición distintos.", "varying_arc": "Las alturas de arco deben variar para calcular la saturación.",
     "saturation_rate": "No fue posible determinar una tasa de saturación positiva.",
+    "curve_valid": "CURVA VÁLIDA — criterio SAE J443 cumplido.",
+    "curve_invalid": "CURVA NO VÁLIDA — {reasons}",
+    "curve_invalid_before_t": "sin medicion en/antes de T", "curve_invalid_2t": "la exposicion maxima no alcanza 2T",
+    "curve_invalid_descending_arc": "la altura medida disminuye al aumentar la exposición",
+        "curve_invalid_type2_10_percent": "el aumento de T a 2T supera el 10%", "curve_invalid_fit": "el ajuste a los datos es insuficiente (R² inferior a 0,80)",
+    "curve_validation": "Validación de la curva", "curve_2t_increase": "Aumento de T a 2T",
+    "intensity_out_of_required_range": "ATENCIÓN: H(T) = {value:.4f} {unit} está fuera del rango requerido ({lower:.4f} a {upper:.4f} {unit}).",
 })
 
 _TEXTS["PT"].update({
