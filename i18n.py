@@ -447,7 +447,7 @@ _TEXTS["ES"].update({
 _TEXTS["PT"].update({
     "about_system_subtitle": "Informações operacionais, rastreabilidade e uso do aplicativo.",
     "system_product": "Produto", "system_product_value": "Curv Saturation — Curva de Saturação Almen",
-    "system_version": "Versão", "system_version_value": "1.0",
+    "system_version": "Versão",
     "system_scope": "Função principal", "system_scope_value": "Cálculo, análise e emissão de relatórios técnicos de curva de saturação.",
     "system_sync": "Sincronização", "system_sync_value": "PNs, curvas e relatórios podem ser sincronizados entre computadores com a mesma licença ativa.",
     "system_offline": "Operação sem internet", "system_offline_value": "O banco local continua disponível; as alterações são sincronizadas quando a conexão retornar.",
@@ -463,7 +463,7 @@ _TEXTS["PT"].update({
 _TEXTS["EN"].update({
     "about_system_subtitle": "Operational information, traceability and application use.",
     "system_product": "Product", "system_product_value": "Curv Saturation — Almen Saturation Curve",
-    "system_version": "Version", "system_version_value": "1.0",
+    "system_version": "Version",
     "system_scope": "Main function", "system_scope_value": "Calculation, analysis and issuance of saturation curve technical reports.",
     "system_sync": "Synchronization", "system_sync_value": "PNs, curves and reports can be synchronized between computers with the same active license.",
     "system_offline": "Offline operation", "system_offline_value": "The local database remains available; changes are synchronized when the connection returns.",
@@ -479,7 +479,7 @@ _TEXTS["EN"].update({
 _TEXTS["ES"].update({
     "about_system_subtitle": "Información operativa, trazabilidad y uso de la aplicación.",
     "system_product": "Producto", "system_product_value": "Curv Saturation — Curva de Saturación Almen",
-    "system_version": "Versión", "system_version_value": "1.0",
+    "system_version": "Versión",
     "system_scope": "Función principal", "system_scope_value": "Cálculo, análisis y emisión de informes técnicos de curvas de saturación.",
     "system_sync": "Sincronización", "system_sync_value": "Los PN, curvas e informes pueden sincronizarse entre equipos con la misma licencia activa.",
     "system_offline": "Operación sin internet", "system_offline_value": "La base local sigue disponible; los cambios se sincronizan al volver la conexión.",

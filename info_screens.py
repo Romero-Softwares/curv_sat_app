@@ -15,6 +15,7 @@ import threading
 
 import customtkinter as ctk
 
+from app_version import APP_VERSION
 from i18n import tr
 from license_service import (
     AUTOMATIC_DATA_SYNC_INTERVAL_SECONDS,
@@ -513,7 +514,7 @@ def abrir_informacoes_sistema(parent: ctk.CTk) -> None:
     status = ctk.CTkLabel(conteudo, text="", text_color="#2f6f4e", anchor="w")
     itens = (
         ("▣", tr("system_product"), tr("system_product_value")),
-        ("◷", tr("system_version"), tr("system_version_value")),
+        ("◷", tr("system_version"), APP_VERSION),
         ("✓", tr("system_scope"), tr("system_scope_value")),
         ("☁", tr("system_sync"), tr("system_sync_value")),
         ("▣", tr("system_offline"), tr("system_offline_value")),
