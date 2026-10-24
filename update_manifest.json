@@ -1,17 +1,17 @@
 {
   "app": "CurvSat",
   "version": "1.0.4",
-  "release_notes": "Aprimora o calculo e a validacao da curva de saturacao, inclui alertas para intensidade fora da faixa requerida e melhora o relatorio tecnico.",
+  "release_notes": "Corrige acentuação dos textos em português do sistema.",
   "download_url": "https://merotec.online/download/ASCC-System-1.0.4.exe",
   "artifact": {
     "name": "ASCC-System-1.0.4.exe",
-    "sha256": "37d8ee9f2b692a4f811899af491c3e4c0496732782636a6986fa2d9191eadef8",
-    "size": 78179061
+    "sha256": "cfc453a1c416f14fc8b08ff6eb5bccfafca9b08ec231d800c96023e7ecc261bf",
+    "size": 78178928
   },
   "local_signature": {
     "format": "merotec.release-manifest.v1",
     "algorithm": "Ed25519",
     "key_id": "ed25519:e587daae6f8fd5e563622814",
-    "value": "x5gm3IZb_MIOzhBL7Nlp8mMFHZn4FGkws7iiEe6tcHRpvzFva1otCDemAu-v7oNwvvbUFWRDy7auIFxwcSWSBA"
+    "value": "CbPxTYwhFOwb9B6_r0nvAhoT4VZsNvPgtpgbJnpy55Uz37utmD55nU42wjyrVljUyYURipn3_tJa47GB78MoDw"
   }
 }
