@@ -1,8 +1,8 @@
 # UTF-8
 VSVersionInfo(
   ffi=FixedFileInfo(
-    filevers=(1, 0, 4, 0),
-    prodvers=(1, 0, 4, 0),
+    filevers=(1, 0, 5, 0),
+    prodvers=(1, 0, 5, 0),
     mask=0x3f,
     flags=0x0,
     OS=0x40004,
@@ -17,12 +17,12 @@ VSVersionInfo(
         [
           StringStruct('CompanyName', 'MTD Softwares e Merotec IA'),
           StringStruct('FileDescription', 'Curv Saturation - Curva de Saturação Almen'),
-          StringStruct('FileVersion', '1.0.4'),
+          StringStruct('FileVersion', '1.0.5'),
           StringStruct('InternalName', 'ASCC-System'),
           StringStruct('LegalCopyright', 'Copyright © 2026 MTD Softwares e Merotec IA. Todos os direitos reservados.'),
-          StringStruct('OriginalFilename', 'ASCC-System-1.0.4.exe'),
+          StringStruct('OriginalFilename', 'ASCC-System-1.0.5.exe'),
           StringStruct('ProductName', 'Curv Saturation - Curva de Saturação Almen'),
-          StringStruct('ProductVersion', '1.0.4')
+          StringStruct('ProductVersion', '1.0.5')
         ]
       )
     ]),

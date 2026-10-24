@@ -1,1 +1,1 @@
-PyInstaller --onefile --windowed --name "ASCC-System-1.0.4" --add-data "assets;assets" --icon "assets/icons/logo.ico" --version-file "packaging/version_info.txt" --hidden-import "scipy"  "main.py"
+PyInstaller --onefile --windowed --name "ASCC-System-1.0.5" --add-data "assets;assets" --icon "assets/icons/logo.ico" --version-file "packaging/version_info.txt" --hidden-import "scipy"  "main.py"

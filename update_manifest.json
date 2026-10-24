@@ -1,17 +1,17 @@
 {
   "app": "CurvSat",
-  "version": "1.0.4",
-  "release_notes": "Corrige acentuação dos textos em português do sistema.",
-  "download_url": "https://merotec.online/download/ASCC-System-1.0.4.exe",
+  "version": "1.0.5",
+  "release_notes": "Inclui metadados completos do executavel no Windows.",
+  "download_url": "https://merotec.online/download/ASCC-System-1.0.5.exe",
   "artifact": {
-    "name": "ASCC-System-1.0.4.exe",
-    "sha256": "5c585617533895f9363f801b698fe337e9881437cbf4c4cff955f765078f739b",
-    "size": 78179952
+    "name": "ASCC-System-1.0.5.exe",
+    "sha256": "7108db26dc459fa5a8f05ac7d16f4de272098a1574dbf636c53f96e3388bc0fd",
+    "size": 78178846
   },
   "local_signature": {
     "format": "merotec.release-manifest.v1",
     "algorithm": "Ed25519",
     "key_id": "ed25519:e587daae6f8fd5e563622814",
-    "value": "ixKINUHhLYnGt3CkFRqM43v7L31aE38tOHDf7NRvmAkGKna9VQ-t9YraTtjKUjOhouCcAgNFKsWXcTolYAn6DQ"
+    "value": "HKzqD61E1qADr87P7jCCQ-2M4oJ6tuXPz0GH-N8UiYQy_elhwp5z6hMEOttZ7VoJQssyp7Vd1XTxvOgmBdd4Dw"
   }
 }
