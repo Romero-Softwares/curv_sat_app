@@ -1,6 +1,7 @@
 import os, shutil, sys, threading
 import tkinter as tk
-from tkinter import filedialog
+from tkinter import filedialog, messagebox
+import webbrowser
 os.environ["QT_LOGGING_RULES"] = "qt.qpa.window=false"
 def get_base_path():
     if getattr(sys, 'frozen', False):
@@ -68,6 +69,7 @@ from pathlib import Path
 import tempfile
 
 from app_paths import user_data_file
+from app_version import APP_VERSION
 from reports import (
     BancoDadosPN,
     abrir_historico_relatorios,
@@ -95,6 +97,7 @@ from i18n import (
     save_report_prefix,
     tr,
 )
+from update_service import check_for_update
 
 # ==============================================================================
 # 3. RESTANTE DO SEU CÓDIGO ORIGINAL INTACTO
@@ -403,6 +406,7 @@ class AlmenApp(ctk.CTk):
         self.protocol("WM_DELETE_WINDOW", self.ao_fechar)
         self._automatic_sync_after_id = None
         self.agendar_sincronizacao_automatica(initial=True)
+        self.after(1800, self.verificar_atualizacao)
         
         caminho_icone = resource_path(relative_path="assets/icons/logo.ico")
         try:
@@ -443,6 +447,36 @@ class AlmenApp(ctk.CTk):
                 pass
 
         threading.Thread(target=executar, daemon=True).start()
+
+    def verificar_atualizacao(self):
+        """Consulta o manifesto remoto fora da thread da interface."""
+        def executar():
+            atualizacao = check_for_update()
+            if atualizacao is not None:
+                try:
+                    self.after(0, lambda: self._mostrar_atualizacao(atualizacao))
+                except Exception:
+                    pass
+
+        threading.Thread(target=executar, daemon=True).start()
+
+    def _mostrar_atualizacao(self, atualizacao):
+        """Exibe a nova versão e só abre o download após confirmação."""
+        detalhes = atualizacao.release_notes or "Consulte as notas da versão para mais detalhes."
+        mensagem = (
+            f"Há uma nova versão disponível: {atualizacao.version}.\n\n"
+            f"Versão instalada: {APP_VERSION}.\n\n{detalhes}"
+        )
+        if atualizacao.download_url:
+            confirmar = messagebox.askyesno(
+                "Atualização disponível",
+                f"{mensagem}\n\nDeseja abrir o download agora?",
+                parent=self,
+            )
+            if confirmar:
+                webbrowser.open(atualizacao.download_url)
+            return
+        messagebox.showinfo("Atualização disponível", mensagem, parent=self)
 
     def t(self, key, **values):
         return tr(key, self.idioma, **values)
