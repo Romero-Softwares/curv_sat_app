@@ -1,17 +1,17 @@
 {
   "app": "CurvSat",
-  "version": "1.0.3",
-  "release_notes": "Reorganizacao interna do projeto por modulos, com lancadores e fluxo de publicacao preservados.",
-  "download_url": "https://merotec.online/download/ASCC-System-1.0.3.exe",
+  "version": "1.0.4",
+  "release_notes": "Aprimora o calculo e a validacao da curva de saturacao, inclui alertas para intensidade fora da faixa requerida e melhora o relatorio tecnico.",
+  "download_url": "https://merotec.online/download/ASCC-System-1.0.4.exe",
   "artifact": {
-    "name": "ASCC-System-1.0.3.exe",
-    "sha256": "e7e2ffb81138263f74028cf564c7e18b0516dea08e797ba9ee9b672f5bd42399",
-    "size": 73300140
+    "name": "ASCC-System-1.0.4.exe",
+    "sha256": "37d8ee9f2b692a4f811899af491c3e4c0496732782636a6986fa2d9191eadef8",
+    "size": 78179061
   },
   "local_signature": {
     "format": "merotec.release-manifest.v1",
     "algorithm": "Ed25519",
     "key_id": "ed25519:e587daae6f8fd5e563622814",
-    "value": "b2BcXOxD4ffB1iVoX2SX7miATdwEkz09gs3upPqV606mly0JHd0eT0eUw2ZiQAEd7vpN_zjYN9U3HG4eiw5pCQ"
+    "value": "x5gm3IZb_MIOzhBL7Nlp8mMFHZn4FGkws7iiEe6tcHRpvzFva1otCDemAu-v7oNwvvbUFWRDy7auIFxwcSWSBA"
   }
 }
