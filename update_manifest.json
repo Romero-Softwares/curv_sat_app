@@ -1,6 +1,6 @@
 {
   "app": "CurvSat",
-  "version": "1.0.2",
-  "release_notes": "Correções e melhorias na atualização do sistema.",
-  "download_url": "https://merotec.online/download/ASCC-System-1.0.2.exe"
+  "version": "1.0.3",
+  "release_notes": "Reorganizacao interna do projeto por modulos, com lancadores e fluxo de publicacao preservados.",
+  "download_url": "https://merotec.online/download/ASCC-System-1.0.3.exe"
 }

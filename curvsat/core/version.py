@@ -1,4 +1,4 @@
 """Identidade da versão distribuída do CurvSat."""
 
 APP_NAME = "CurvSat"
-APP_VERSION = "1.0.2"
+APP_VERSION = "1.0.3"

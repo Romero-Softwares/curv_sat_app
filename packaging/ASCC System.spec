@@ -26,7 +26,7 @@ exe = EXE(
     a.binaries,
     a.datas,
     [],
-    name='ASCC-System-1.0.2',
+    name='ASCC-System-1.0.3',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
