@@ -5,13 +5,13 @@
   "download_url": "https://merotec.online/download/ASCC-System-1.0.4.exe",
   "artifact": {
     "name": "ASCC-System-1.0.4.exe",
-    "sha256": "cfc453a1c416f14fc8b08ff6eb5bccfafca9b08ec231d800c96023e7ecc261bf",
-    "size": 78178928
+    "sha256": "5c585617533895f9363f801b698fe337e9881437cbf4c4cff955f765078f739b",
+    "size": 78179952
   },
   "local_signature": {
     "format": "merotec.release-manifest.v1",
     "algorithm": "Ed25519",
     "key_id": "ed25519:e587daae6f8fd5e563622814",
-    "value": "CbPxTYwhFOwb9B6_r0nvAhoT4VZsNvPgtpgbJnpy55Uz37utmD55nU42wjyrVljUyYURipn3_tJa47GB78MoDw"
+    "value": "ixKINUHhLYnGt3CkFRqM43v7L31aE38tOHDf7NRvmAkGKna9VQ-t9YraTtjKUjOhouCcAgNFKsWXcTolYAn6DQ"
   }
 }
