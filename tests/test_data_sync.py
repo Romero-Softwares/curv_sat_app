@@ -6,7 +6,7 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
 
-from reports import BancoDadosPN, criar_dados_relatorio
+from curvsat.reporting.reports import BancoDadosPN, criar_dados_relatorio
 
 
 class DataSyncTests(unittest.TestCase):

@@ -15,9 +15,9 @@ import threading
 
 import customtkinter as ctk
 
-from app_version import APP_VERSION
-from i18n import tr
-from license_service import (
+from curvsat.core.version import APP_VERSION
+from curvsat.content.translations import tr
+from curvsat.services.license import (
     AUTOMATIC_DATA_SYNC_INTERVAL_SECONDS,
     LicenseError,
     activate_license,
@@ -27,7 +27,7 @@ from license_service import (
     sync_active_license,
     sync_active_system_data,
 )
-from tooltip import add_tooltip
+from curvsat.ui.tooltip import add_tooltip
 
 
 _WINDOW_COLOR = "#1f344a"
@@ -37,7 +37,7 @@ _ACCENT_COLOR = "#1f6fae"
 
 def _resource_path(relative_path: str) -> str:
     """Resolve recursos tanto no código-fonte quanto no executável empacotado."""
-    base_path = getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__)))
+    base_path = getattr(sys, "_MEIPASS", os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
     return os.path.join(base_path, relative_path)
 
 

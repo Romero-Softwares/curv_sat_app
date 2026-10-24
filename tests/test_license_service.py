@@ -8,14 +8,14 @@ from tempfile import TemporaryDirectory
 import unittest
 from unittest.mock import patch
 
-import license_service
+from curvsat.services import license as license_service
 
 
 class LicenseServiceTests(unittest.TestCase):
     def test_automatic_sync_preference_is_local_and_persistent(self):
         with TemporaryDirectory() as directory:
             license_file = Path(directory) / "licenca.json"
-            with patch("license_service._license_file", return_value=license_file):
+            with patch("curvsat.services.license._license_file", return_value=license_file):
                 self.assertFalse(license_service.is_automatic_data_sync_enabled())
                 license_service.set_automatic_data_sync_enabled(True)
                 self.assertTrue(license_service.is_automatic_data_sync_enabled())

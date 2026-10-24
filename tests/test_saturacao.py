@@ -9,8 +9,8 @@ from unittest.mock import patch
 import numpy as np
 from matplotlib.figure import Figure
 
-import app_paths
-from main import (
+from curvsat.core import paths as app_paths
+from curvsat.application import (
     AlmenApp,
     TIPOS_LAMINA,
     calcular_saturacao,
@@ -21,7 +21,7 @@ from main import (
     eh_windows_8,
     montar_relatorio_html,
 )
-from reports import (
+from curvsat.reporting.reports import (
     BancoDadosPN,
     CAMPO_UNIDADE_RELATORIO,
     calcular_sha256_relatorio,
@@ -30,8 +30,8 @@ from reports import (
     extrair_faixa_intensidade,
     remover_destaque_faixa_intensidade,
 )
-from technical_data import GRANULOMETRIA_ESFERAS, NORMAS_REFERENCIA
-from i18n import LANGUAGES, _TEXTS, load_language, save_language, technical_content, tr
+from curvsat.content.technical_data import GRANULOMETRIA_ESFERAS, NORMAS_REFERENCIA
+from curvsat.content.translations import LANGUAGES, _TEXTS, load_language, save_language, technical_content, tr
 
 
 class CalcularSaturacaoTests(unittest.TestCase):
@@ -147,11 +147,11 @@ class CalcularSaturacaoTests(unittest.TestCase):
         self.assertFalse(eh_windows_8("posix", 9200))
 
     def test_compatibilidade_visual_do_windows_8_fixa_dpi_e_tema_claro(self):
-        with patch("main.eh_windows_8", return_value=True), \
-             patch("main.ctk.deactivate_automatic_dpi_awareness") as desativar_dpi, \
-             patch("main.ctk.set_widget_scaling") as escalar_widgets, \
-             patch("main.ctk.set_window_scaling") as escalar_janela, \
-             patch("main.ctk.set_appearance_mode") as tema:
+        with patch("curvsat.application.eh_windows_8", return_value=True), \
+             patch("curvsat.application.ctk.deactivate_automatic_dpi_awareness") as desativar_dpi, \
+             patch("curvsat.application.ctk.set_widget_scaling") as escalar_widgets, \
+             patch("curvsat.application.ctk.set_window_scaling") as escalar_janela, \
+             patch("curvsat.application.ctk.set_appearance_mode") as tema:
             self.assertTrue(configurar_compatibilidade_visual())
 
         desativar_dpi.assert_called_once_with()
@@ -510,7 +510,7 @@ class CalcularSaturacaoTests(unittest.TestCase):
             def renderizar(numero, emitido_em):
                 return f"<html><body>{numero}|{emitido_em:%d/%m/%Y %H:%M}</body></html>"
 
-            with patch("reports.datetime") as relogio:
+            with patch("curvsat.reporting.reports.datetime") as relogio:
                 relogio.now.return_value = datetime(2026, 8, 10, 14, 30)
                 primeiro = banco.emitir_relatorio("sp", "PN-100", "SN-7", renderizar)
                 relogio.now.return_value = datetime(2026, 8, 11, 9, 5)
@@ -532,7 +532,7 @@ class CalcularSaturacaoTests(unittest.TestCase):
             caminho = Path(diretorio) / "cadastros.db"
             banco = BancoDadosPN(caminho)
 
-            with patch("reports.datetime") as relogio:
+            with patch("curvsat.reporting.reports.datetime") as relogio:
                 relogio.now.return_value = datetime(2026, 8, 10, 14, 30)
                 primeiro = banco.emitir_relatorio("SP", "PN-100", "", lambda numero, _data: f"<html>{numero}</html>")
                 relogio.now.return_value = datetime(2026, 8, 11, 9, 5)

@@ -2,14 +2,15 @@
 from pathlib import Path
 
 
-PROJECT_DIR = Path(SPECPATH)
+PROJECT_DIR = Path(SPECPATH).parent
+
 
 a = Analysis(
-    [str(PROJECT_DIR / "license_generator.py")],
+    [str(PROJECT_DIR / 'main.py')],
     pathex=[str(PROJECT_DIR)],
     binaries=[],
-    datas=[(str(PROJECT_DIR / "licensing" / "issuer_private_key.json"), "licensing")],
-    hiddenimports=[],
+    datas=[(str(PROJECT_DIR / 'assets'), 'assets')],
+    hiddenimports=['scipy', 'curvsat.application'],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
@@ -25,7 +26,7 @@ exe = EXE(
     a.binaries,
     a.datas,
     [],
-    name="GeradorChaveCurvSat",
+    name='ASCC-System-1.0.2',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -38,5 +39,5 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon=str(PROJECT_DIR / "assets" / "icons" / "logo.ico"),
+    icon=[str(PROJECT_DIR / 'assets' / 'icons' / 'logo.ico')],
 )

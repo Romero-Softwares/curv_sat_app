@@ -1,12 +1,15 @@
 # -*- mode: python ; coding: utf-8 -*-
+from pathlib import Path
 
+
+PROJECT_DIR = Path(SPECPATH).parent
 
 a = Analysis(
-    ['main.py'],
-    pathex=[],
+    [str(PROJECT_DIR / "license_generator.py")],
+    pathex=[str(PROJECT_DIR)],
     binaries=[],
-    datas=[('assets', 'assets')],
-    hiddenimports=['scipy'],
+    datas=[(str(PROJECT_DIR / "licensing" / "issuer_private_key.json"), "licensing")],
+    hiddenimports=[],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
@@ -22,7 +25,7 @@ exe = EXE(
     a.binaries,
     a.datas,
     [],
-    name='ASCC-System-1.0.2',
+    name="GeradorChaveCurvSat",
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -35,5 +38,5 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    icon=['assets/icons/logo.ico'],
+    icon=str(PROJECT_DIR / "assets" / "icons" / "logo.ico"),
 )

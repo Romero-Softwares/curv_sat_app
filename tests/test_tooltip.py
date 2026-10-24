@@ -1,6 +1,6 @@
 import unittest
 
-from tooltip import _position_tooltip
+from curvsat.ui.tooltip import _position_tooltip
 
 
 class TooltipPositionTests(unittest.TestCase):

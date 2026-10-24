@@ -19,9 +19,9 @@ from datetime import date
 from pathlib import Path
 from typing import Any
 
-from app_paths import user_data_file
-from supabase_service import LicenseSyncError, sync_license
-from data_sync_service import synchronize_system_data
+from curvsat.core.paths import user_data_file
+from curvsat.services.supabase import LicenseSyncError, sync_license
+from curvsat.services.data_sync import synchronize_system_data
 
 
 PRODUCT_CODE = "CURVSAT"

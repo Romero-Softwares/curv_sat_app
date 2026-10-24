@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from i18n import technical_content
+from curvsat.content.translations import technical_content
 
 
 def dados_tecnicos(language: str | None = None) -> dict:

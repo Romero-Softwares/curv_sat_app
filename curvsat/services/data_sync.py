@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from typing import Any
 
-from i18n import apply_shared_settings, get_shared_settings
-from reports import BancoDadosPN
-from supabase_service import sync_system_data
+from curvsat.content.translations import apply_shared_settings, get_shared_settings
+from curvsat.reporting.reports import BancoDadosPN
+from curvsat.services.supabase import sync_system_data
 
 
 def synchronize_system_data(activation_code: str) -> dict[str, int]:

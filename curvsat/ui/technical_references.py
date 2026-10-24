@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import customtkinter as ctk
 import os, sys
-from i18n import tr
+from curvsat.content.translations import tr
 
-from technical_data import dados_tecnicos
+from curvsat.content.technical_data import dados_tecnicos
 
 def get_base_path():
     if getattr(sys, 'frozen', False):

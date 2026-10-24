@@ -8,6 +8,7 @@ configuracoes.json
 .merotec_system_ai/
 .test-app-data/
 .test-localappdata/
+.test-localappdata-*/
 .venv/
 build/
 dist/
@@ -18,3 +19,6 @@ chave_ativacao.txt
 output/
 tmp/
 server/
+release-*.log
+release-*.err.log
+relatorio_*.html

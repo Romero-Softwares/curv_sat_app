@@ -8,7 +8,7 @@ import re
 from typing import Any
 from urllib.request import Request, urlopen
 
-from app_version import APP_NAME, APP_VERSION
+from curvsat.core.version import APP_NAME, APP_VERSION
 
 
 UPDATE_MANIFEST_URL = (
@@ -77,4 +77,3 @@ def check_for_update(
         return UpdateInfo(version, release_notes, download_url or None)
     except (KeyError, OSError, UnicodeDecodeError, ValueError, json.JSONDecodeError):
         return None
-

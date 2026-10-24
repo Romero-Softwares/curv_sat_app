@@ -5,16 +5,16 @@ uma nova versao e feita pelo atalho `publicar_atualizacao.cmd`.
 
 ## Fonte unica e fluxo completo
 
-`app_version.py` e a fonte unica da versao instalada. A tela **Sobre o
+`curvsat/core/version.py` e a fonte unica da versao instalada. A tela **Sobre o
 sistema** le esse mesmo valor em tempo de execucao; portanto, ela nao possui
 nenhuma versao fixa para ser alterada manualmente.
 
 O publicador e a unica forma normal de mudar uma versao. Para uma versao
 `X.Y.Z`, ele mantem sincronizados:
 
-1. `app_version.py` (versao exibida e enviada pelo aplicativo);
+1. `curvsat/core/version.py` (versao exibida e enviada pelo aplicativo);
 2. `update_manifest.json` (versao, notas e URL publica);
-3. `ASCC System.spec` e `compile_params.txt` (nome do pacote);
+3. `packaging/ASCC System.spec` e `packaging/pyinstaller-params.txt` (nome do pacote);
 4. `dist/ASCC-System-X.Y.Z.exe` (instalador gerado);
 5. commit `Publica atualizacao X.Y.Z` e tag Git `vX.Y.Z`.
 

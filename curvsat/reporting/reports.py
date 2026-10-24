@@ -18,14 +18,14 @@ from tkinter import filedialog, messagebox
 
 import customtkinter as ctk
 
-from app_paths import user_data_file
-from i18n import html_language, load_language, tr
-from tooltip import add_tooltip
+from curvsat.core.paths import user_data_file
+from curvsat.content.translations import html_language, load_language, tr
+from curvsat.ui.tooltip import add_tooltip
 def get_base_path():
     if getattr(sys, 'frozen', False):
         # Se for o .exe, o caminho é a pasta onde o .exe está
         return os.path.dirname(sys.executable)
-    return os.path.dirname(os.path.abspath(__file__))
+    return os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 def resource_path(relative_path):
     try:
@@ -1609,7 +1609,7 @@ def abrir_historico_relatorios(app):
         # sincronização automática/manual a reenviará.
         def sincronizar_exclusao():
             try:
-                from license_service import sync_active_system_data
+                from curvsat.services.license import sync_active_system_data
                 sync_active_system_data()
             except Exception:
                 pass

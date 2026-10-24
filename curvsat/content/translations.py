@@ -12,7 +12,7 @@ import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
-from app_paths import user_data_file
+from curvsat.core.paths import user_data_file
 
 
 LANGUAGES = {
