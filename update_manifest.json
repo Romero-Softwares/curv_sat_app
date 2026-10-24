@@ -1,6 +1,6 @@
 {
   "app": "CurvSat",
-  "version": "1.0.0",
-  "release_notes": "Versão inicial com verificação de atualizações pelo GitHub.",
-  "download_url": null
+  "version": "1.0.1",
+  "release_notes": "Primeira atualização com aviso de nova versão e download confirmado pelo usuário.",
+  "download_url": "https://merotec.online/download/ASCC-System-1.0.1.exe"
 }
