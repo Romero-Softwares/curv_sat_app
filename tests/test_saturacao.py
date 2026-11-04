@@ -1,3 +1,4 @@
+import os
 import unittest
 import sqlite3
 from datetime import datetime
@@ -20,6 +21,7 @@ from curvsat.application import (
     configurar_compatibilidade_visual,
     converter_arco,
     eh_windows_8,
+    gerar_codigo_curva_saturacao,
     montar_relatorio_html,
 )
 from curvsat.reporting.reports import (
@@ -27,9 +29,13 @@ from curvsat.reporting.reports import (
     avaliar_intensidade_requerida,
     CAMPO_UNIDADE_RELATORIO,
     calcular_sha256_relatorio,
+    converter_relatorio_html_para_pdf,
     criar_dados_relatorio,
     destacar_faixa_intensidade,
     extrair_faixa_intensidade,
+    abrir_relatorio_html_para_impressao,
+    enviar_relatorio_html_para_impressora,
+    nome_arquivo_pdf_relatorio,
     remover_destaque_faixa_intensidade,
 )
 from curvsat.content.technical_data import GRANULOMETRIA_ESFERAS, NORMAS_REFERENCIA
@@ -46,6 +52,11 @@ class CalcularSaturacaoTests(unittest.TestCase):
 
     def test_tipos_de_lamina_exibem_apenas_siglas(self):
         self.assertEqual([tr(chave, "PT") for chave in TIPOS_LAMINA.values()], ["N", "A", "C"])
+
+    def test_identificador_da_curva_e_traduzido_sem_mojibake(self):
+        self.assertEqual(tr("curve_identifier", "PT", code="A2245"), "Identificador: A2245")
+        self.assertEqual(tr("curve_identifier", "EN", code="A2245"), "Identifier: A2245")
+        self.assertEqual(tr("curve_identifier", "ES", code="A2245"), "Identificador: A2245")
 
     def test_router_e_esfera_sem_seletor_de_unidade(self):
         dados = criar_dados_relatorio()
@@ -103,6 +114,7 @@ class CalcularSaturacaoTests(unittest.TestCase):
             unidade_arco="mm",
             tipo_lamina="A",
             tipo_exposicao="seconds",
+            _codigo_curva_atual="A4832",
         )
 
         curva = AlmenApp.curva_atual_para_salvar(app)
@@ -110,6 +122,7 @@ class CalcularSaturacaoTests(unittest.TestCase):
         self.assertEqual(curva["alturas"], [0.1, 0.17, 0.22, 0.24])
         self.assertEqual(curva["laminas"], ["L-NEG", "L-ZERO", "L-NEG", "L-ZERO"])
         self.assertEqual(curva["desvios_laminas"], {"L-NEG": -0.0011, "L-ZERO": 0.0})
+        self.assertEqual(curva["codigo_curva"], "A4832")
 
         linhas_recarregadas = []
         app_recarregado = SimpleNamespace(
@@ -122,8 +135,29 @@ class CalcularSaturacaoTests(unittest.TestCase):
         )
         self.assertTrue(AlmenApp._carregar_curva_salva(app_recarregado, curva))
         self.assertEqual(app_recarregado.desvios_laminas, curva["desvios_laminas"])
+        self.assertEqual(app_recarregado._codigo_curva_atual, "A4832")
         self.assertEqual(linhas_recarregadas[0], (1.0, 0.1, "L-NEG"))
         self.assertEqual(linhas_recarregadas[1], (2.0, 0.17, "L-ZERO"))
+
+    def test_codigo_da_curva_usa_tipo_de_lamina_e_quatro_digitos(self):
+        codigo = gerar_codigo_curva_saturacao("N")
+
+        self.assertRegex(codigo, r"^N\d{4}$")
+
+    def test_identificador_gerado_fica_persistido_na_curva_do_pn(self):
+        curva = {
+            "tempos": [1.0, 2.0, 4.0, 8.0],
+            "alturas": [0.10, 0.17, 0.22, 0.24],
+            "unidade_arco": "mm",
+            "tipo_lamina": "A",
+            "tipo_exposicao": "seconds",
+        }
+        with TemporaryDirectory() as diretorio:
+            banco = BancoDadosPN(Path(diretorio) / "cadastros.db")
+            banco.salvar({"Peça / PN": "PN-100", "SN da peça": "SN-7"}, curva)
+
+            self.assertTrue(banco.atualizar_codigo_curva("PN-100", "SN-7", "A4832"))
+            self.assertEqual(banco.obter_curva("PN-100", "SN-7")["codigo_curva"], "A4832")
 
     def test_indicador_informa_a_origem_dos_dados_da_curva(self):
         app = SimpleNamespace(
@@ -630,6 +664,14 @@ class CalcularSaturacaoTests(unittest.TestCase):
             self.assertEqual(arquivado["numero"], primeiro["numero"])
             self.assertEqual(arquivado["conteudo_html"], primeiro["conteudo_html"])
 
+    def test_nome_do_pdf_usa_numero_pn_sn_e_data_sem_barras(self):
+        self.assertEqual(
+            nome_arquivo_pdf_relatorio(
+                "SP-013-26", "PN/100", "SN:7", datetime(2026, 8, 10, 14, 30)
+            ),
+            "SP-013-26_PN-100_SN-7_10-08-2026.pdf",
+        )
+
     def test_emissao_nao_reinicia_sequencia_apos_excluir_e_reabrir_no_mesmo_ano(self):
         with TemporaryDirectory() as diretorio:
             caminho = Path(diretorio) / "cadastros.db"
@@ -700,6 +742,45 @@ class CalcularSaturacaoTests(unittest.TestCase):
         self.assertEqual(set(_TEXTS["ES"]), chaves_pt)
         self.assertEqual(technical_content("EN")["analysis"][2], ("Item", "Check", "Purpose"))
         self.assertEqual(technical_content("ES")["media"][0], "Tipos de medio")
+
+
+class ImpressaoHtmlNativaTests(unittest.TestCase):
+    def test_grava_html_arquivado_e_abre_no_navegador(self):
+        conteudo_html = "<html><body><section class='pagina-relatorio'>Relatório 1</section></body></html>"
+        with TemporaryDirectory() as diretorio, patch("curvsat.reporting.reports.webbrowser.open_new_tab", return_value=True) as abrir:
+            destino = abrir_relatorio_html_para_impressao(conteudo_html, Path(diretorio) / "relatorio")
+            self.assertEqual(destino.suffix, ".html")
+            self.assertEqual(destino.read_text(encoding="utf-8"), conteudo_html)
+            abrir.assert_called_once_with(destino.resolve().as_uri())
+
+    @unittest.skipUnless(os.name == "nt", "A impressão direta é específica do Windows")
+    def test_converte_para_pdf_antes_de_enviar_para_impressora_padrao(self):
+        conteudo_html = "<html><body><section class='pagina-relatorio'>Relatório 1</section></body></html>"
+        with TemporaryDirectory() as diretorio, \
+                patch("curvsat.reporting.reports.converter_relatorio_html_para_pdf") as converter, \
+                patch("curvsat.reporting.reports.os.startfile") as imprimir:
+            arquivo_pdf = Path(diretorio) / "relatorio.pdf"
+            converter.return_value = arquivo_pdf
+            destino = enviar_relatorio_html_para_impressora(conteudo_html, Path(diretorio) / "relatorio")
+            self.assertEqual(destino, arquivo_pdf)
+            converter.assert_called_once_with(conteudo_html, Path(diretorio) / "relatorio")
+            imprimir.assert_called_once_with(str(destino), "print")
+
+    def test_conversor_grava_html_e_produz_pdf_do_navegador(self):
+        conteudo_html = "<html><body><section class='pagina-relatorio'>Relatório 1</section></body></html>"
+
+        def executar(comando, **_kwargs):
+            caminho_pdf = next(item.split("=", 1)[1] for item in comando if item.startswith("--print-to-pdf="))
+            Path(caminho_pdf).write_bytes(b"%PDF-1.7\nrelatorio")
+            return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+        with TemporaryDirectory() as diretorio, \
+                patch("curvsat.reporting.reports._localizar_navegador_para_pdf", return_value=Path("navegador.exe")), \
+                patch("curvsat.reporting.reports.subprocess.run", side_effect=executar):
+            destino = converter_relatorio_html_para_pdf(conteudo_html, Path(diretorio) / "relatorio")
+            self.assertEqual(destino.suffix, ".pdf")
+            self.assertTrue(destino.is_file())
+            self.assertEqual(destino.with_suffix(".html").read_text(encoding="utf-8"), conteudo_html)
 
 
 if __name__ == "__main__":

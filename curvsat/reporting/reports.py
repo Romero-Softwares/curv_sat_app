@@ -7,12 +7,17 @@ import hashlib
 import html
 import json
 import math
-import os, sys
+import os
+import subprocess
+import sys
 import re
 import sqlite3
 import threading
+import tempfile
+import webbrowser
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
+from html.parser import HTMLParser
 from io import BytesIO
 from pathlib import Path
 from tkinter import filedialog, messagebox
@@ -34,6 +39,437 @@ def resource_path(relative_path):
     except Exception:
         base_path = get_base_path()
     return os.path.join(base_path, relative_path)
+
+
+_PDF_CSS = """
+body { color: #172033; font-family: Helvetica, sans-serif; font-size: 10.5pt; }
+.cabecalho { border: 1.5px solid #2f80c4; border-radius: 5px; margin-bottom: 18px; padding: 12px 16px; }
+.logo-empresa { float: left; height: 92px; margin-right: 18px; max-width: 165px; }
+h1 { color: #153e67; font-size: 18pt; margin: 0 0 4px; }
+h2 { border-bottom: 2px solid #2f80c4; color: #153e67; font-size: 12pt; margin: 20px 0 7px; padding-bottom: 3px; }
+.subtitle, .meta, .formula-compensacao { color: #52606d; }
+.meta { font-size: 8.5pt; margin-top: 10px; }
+table { border-collapse: collapse; width: 100%; }
+th, td { border: 1px solid #cbd5e1; padding: 5px 8px; text-align: left; vertical-align: top; }
+th { background-color: #eef5fb; font-weight: bold; width: 180pt; }
+.norma { background-color: #f1f8f4; border-left: 4px solid #2e9b62; padding: 8px; }
+.grafico { border: 1px solid #cbd5e1; margin-top: 8px; max-width: 100%; width: 100%; }
+.medicoes-laminas th, .medicoes-laminas td { text-align: center; }
+.medicoes-laminas td:nth-child(2) { text-align: left; }
+.formula-compensacao { font-size: 9pt; }
+.assinaturas { margin-top: 22px; }
+.assinatura { display: inline-block; text-align: center; width: 48%; }
+.linha-assinatura { border-top: 1px solid #172033; margin: 30px auto 7px; width: 90%; }
+.integridade-relatorio { background-color: #f5f8fb; border: 1px solid #cbd5e1; font-size: 8.5pt; margin-top: 22px; padding: 8px 10px; }
+.integridade-relatorio code { display: block; font-family: Courier, monospace; font-size: 7pt; }
+.rodape-pagina { color: #52606d; font-size: 8pt; margin: 0; text-align: right; }
+"""
+_DATA_IMAGE_RE = re.compile(
+    r'(?P<prefix>\bsrc\s*=\s*)(?P<quote>["\'])data:(?P<mime>[\w.+/-]+);base64,(?P<data>.*?)(?P=quote)',
+    re.IGNORECASE | re.DOTALL,
+)
+_FOOTER_RE = re.compile(
+    r'<footer\b[^>]*\bclass\s*=\s*(["\'])[^"\']*\brodape-pagina\b[^"\']*\1[^>]*>.*?</footer>',
+    re.IGNORECASE | re.DOTALL,
+)
+_BODY_RE = re.compile(r"<body\\b[^>]*>(?P<body>.*)</body\\s*>", re.IGNORECASE | re.DOTALL)
+_STYLE_RE = re.compile(r"<style\\b[^>]*>.*?</style\\s*>", re.IGNORECASE | re.DOTALL)
+_SECTION_BREAK_RE = re.compile(
+    r"(?=<section\\b[^>]*\\bclass\\s*=\\s*([\"'])[^\"']*\\b(?:resultado-curva|medicoes-laminas)\\b[^\"']*\\1)",
+    re.IGNORECASE,
+)
+_SECTION_BREAK_CSS_RE = re.compile(
+    r"\\.(?:resultado-curva|medicoes-laminas)\\s*\\{[^}]*\\}", re.IGNORECASE | re.DOTALL
+)
+_PAGE_BREAK_PROPERTY_RE = re.compile(
+    r"\\b(?:break-before|page-break-before)\\s*:\\s*[^;}]+;?", re.IGNORECASE
+)
+
+
+def nome_arquivo_pdf_relatorio(numero, pn, sn, emitido_em):
+    """Monta um nome de PDF legível e válido para o Windows."""
+    def componente(valor):
+        texto = re.sub(r'[<>:"/\\|?*\x00-\x1f]+', "-", str(valor or "").strip())
+        return texto.strip(" .") or "sem-dado"
+
+    data = emitido_em.strftime("%d-%m-%Y")
+    return f"{componente(numero)}_{componente(pn)}_{componente(sn)}_{data}.pdf"
+
+
+class _PaginasHtmlRelatorio(HTMLParser):
+    """Separa as seções de página sem simplificar o HTML armazenado."""
+
+    _TAGS_VAZIAS = {"area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "param", "source", "track", "wbr"}
+
+    def __init__(self):
+        super().__init__(convert_charrefs=False)
+        self.paginas = []
+        self._pagina = None
+        self._profundidade = 0
+
+    def handle_starttag(self, tag, attrs):
+        if self._pagina is None and tag == "section" and "pagina-relatorio" in dict(attrs).get("class", "").split():
+            self._pagina = []
+            self._profundidade = 1
+            return
+        if self._pagina is not None:
+            self._pagina.append(self.get_starttag_text())
+            if tag not in self._TAGS_VAZIAS:
+                self._profundidade += 1
+
+    def handle_startendtag(self, tag, attrs):
+        if self._pagina is not None:
+            self._pagina.append(self.get_starttag_text())
+
+    def handle_endtag(self, tag):
+        if self._pagina is None:
+            return
+        if tag not in self._TAGS_VAZIAS:
+            self._profundidade -= 1
+        if self._profundidade == 0:
+            self.paginas.append("".join(self._pagina))
+            self._pagina = None
+            return
+        self._pagina.append(f"</{tag}>")
+
+    def handle_data(self, data):
+        if self._pagina is not None:
+            self._pagina.append(data)
+
+    def handle_entityref(self, name):
+        if self._pagina is not None:
+            self._pagina.append(f"&{name};")
+
+    def handle_charref(self, name):
+        if self._pagina is not None:
+            self._pagina.append(f"&#{name};")
+
+
+def _separar_paginas_por_quebra_css(conteudo_html: str) -> list[str]:
+    """Converte as quebras de pagina do relatorio em documentos HTML independentes."""
+    correspondencia = _BODY_RE.search(conteudo_html)
+    if not correspondencia:
+        return [conteudo_html]
+
+    corpo = correspondencia.group("body")
+    partes = [parte for parte in _SECTION_BREAK_RE.split(corpo) if parte.strip()]
+    if len(partes) == 1:
+        return [conteudo_html]
+
+    estilos = "".join(_STYLE_RE.findall(conteudo_html))
+    estilos = _SECTION_BREAK_CSS_RE.sub(
+        lambda item: _PAGE_BREAK_PROPERTY_RE.sub("", item.group(0)), estilos
+    )
+    return [f"<html><head>{estilos}</head><body>{parte}</body></html>" for parte in partes]
+
+
+def _preparar_recursos_html(conteudo_html: str, pymupdf):
+    """Converte imagens data: em recursos internos aceitos pelo interpretador."""
+    arquivo = pymupdf.Archive()
+    indice = 0
+
+    def substituir(coincidencia):
+        nonlocal indice
+        try:
+            dados = base64.b64decode(coincidencia.group("data"), validate=True)
+            pymupdf.Pixmap(dados)
+        except Exception:
+            return ""
+        indice += 1
+        extensao = coincidencia.group("mime").split("/")[-1].lower()
+        nome = f"imagem_relatorio_{indice}.{extensao}"
+        arquivo.add((dados, nome))
+        return f'{coincidencia.group("prefix")}{coincidencia.group("quote")}{nome}{coincidencia.group("quote")}'
+
+    return _DATA_IMAGE_RE.sub(substituir, conteudo_html), arquivo
+
+
+class _ExtratorHtmlRelatorio(HTMLParser):
+    """Extrai os elementos visuais do relatório HTML arquivado para o PDF."""
+
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.elementos = []
+        self._tag_texto = None
+        self._texto = []
+        self._linhas_tabela = None
+        self._linha_tabela = None
+        self._celula_tabela = None
+        self._div_nivel = 0
+        self._tag_div_nivel = None
+
+    def handle_starttag(self, tag, attrs):
+        atributos = dict(attrs)
+        if tag == "div":
+            self._div_nivel += 1
+        if tag == "table":
+            self._linhas_tabela = []
+        elif tag == "tr" and self._linhas_tabela is not None:
+            self._linha_tabela = []
+        elif tag in {"th", "td"} and self._linha_tabela is not None:
+            self._celula_tabela = []
+        elif tag == "img":
+            origem = atributos.get("src", "")
+            if origem.startswith("data:image/"):
+                self.elementos.append(("imagem", origem, atributos.get("class", "")))
+        elif tag == "div" and "assinatura" in atributos.get("class", "").split():
+            self._tag_texto = "assinatura"
+            self._texto = []
+            self._tag_div_nivel = self._div_nivel
+        elif tag == "section" and "integridade-relatorio" in atributos.get("class", "").split():
+            self._tag_texto = "integridade"
+            self._texto = []
+            self._tag_div_nivel = None
+        elif tag in {"h1", "h2", "p", "code", "footer"} and self._tag_texto is None:
+            self._tag_texto = tag
+            self._texto = []
+        elif tag == "div" and "norma" in atributos.get("class", ""):
+            self._tag_texto = "norma"
+            self._texto = []
+            self._tag_div_nivel = self._div_nivel
+        elif tag == "br":
+            if self._celula_tabela is not None:
+                self._celula_tabela.append("\n")
+            elif self._tag_texto:
+                self._texto.append("\n")
+
+    def handle_endtag(self, tag):
+        if tag in {"th", "td"} and self._celula_tabela is not None:
+            self._linha_tabela.append("".join(self._celula_tabela).strip())
+            self._celula_tabela = None
+        elif tag == "tr" and self._linha_tabela is not None:
+            self._linhas_tabela.append(self._linha_tabela)
+            self._linha_tabela = None
+        elif tag == "table" and self._linhas_tabela is not None:
+            if self._linhas_tabela:
+                self.elementos.append(("tabela", self._linhas_tabela))
+            self._linhas_tabela = None
+        elif tag == self._tag_texto or (
+            tag == "div"
+            and self._tag_texto in {"norma", "assinatura", "integridade"}
+            and self._tag_div_nivel == self._div_nivel
+        ) or (
+            tag == "section" and self._tag_texto == "integridade"
+        ):
+            texto = "".join(self._texto).strip()
+            if texto:
+                self.elementos.append((self._tag_texto, texto))
+            if tag == "footer":
+                self.elementos.append(("quebra",))
+            self._tag_texto = None
+            self._texto = []
+            self._tag_div_nivel = None
+        if tag == "div":
+            self._div_nivel -= 1
+
+    def handle_data(self, data):
+        if self._celula_tabela is not None:
+            self._celula_tabela.append(data)
+        elif self._tag_texto:
+            self._texto.append(data)
+
+
+def _gerar_relatorio_html_em_pdf_reportlab_legacy(conteudo_html: str, destino: str | Path) -> None:
+    """Gera um PDF a partir da versão HTML imutável do relatório."""
+    raise RuntimeError("A conversão alternativa por ReportLab foi removida para preservar a impressão do navegador.")
+
+    extrator = _ExtratorHtmlRelatorio()
+    extrator.feed(conteudo_html)
+    extrator.close()
+    elementos = list(extrator.elementos)
+    while elementos and elementos[-1][0] == "quebra":
+        elementos.pop()
+
+    documento = SimpleDocTemplate(
+        str(destino), pagesize=A4, leftMargin=1.2 * cm, rightMargin=1.2 * cm,
+        topMargin=1.2 * cm, bottomMargin=1.2 * cm, title="Relatório de Curva de Saturação Almen",
+    )
+    estilos = getSampleStyleSheet()
+    estilo_corpo = ParagraphStyle(
+        "RelatorioCorpo", parent=estilos["BodyText"], fontName="Helvetica", fontSize=9,
+        leading=12, textColor=colors.HexColor("#172033"), spaceAfter=5,
+    )
+    estilo_titulo = ParagraphStyle(
+        "RelatorioTitulo", parent=estilos["Heading1"], fontName="Helvetica-Bold", fontSize=18,
+        leading=22, textColor=colors.HexColor("#153e67"), spaceAfter=10,
+    )
+    estilo_secao = ParagraphStyle(
+        "RelatorioSecao", parent=estilos["Heading2"], fontName="Helvetica-Bold", fontSize=12,
+        leading=16, textColor=colors.HexColor("#153e67"), spaceBefore=10, spaceAfter=6,
+    )
+    estilo_rodape = ParagraphStyle(
+        "RelatorioRodape", parent=estilo_corpo, fontSize=8, textColor=colors.HexColor("#52606d"), alignment=2,
+    )
+    estilo_assinatura = ParagraphStyle("RelatorioAssinatura", parent=estilo_corpo, alignment=1, spaceAfter=0)
+    estilo_integridade = ParagraphStyle("RelatorioIntegridade", parent=estilo_corpo, fontSize=8, leading=10, spaceAfter=0)
+    historia = []
+    assinaturas_pendentes = []
+
+    def paragrafo(texto, estilo):
+        return Paragraph(html.escape(texto).replace("\n", "<br/>"), estilo)
+
+    def adicionar_assinaturas():
+        if not assinaturas_pendentes:
+            return
+        colunas = len(assinaturas_pendentes)
+        dados = [[Spacer(1, 0.35 * cm) for _ in assinaturas_pendentes], [
+            paragrafo(assinatura, estilo_assinatura) for assinatura in assinaturas_pendentes
+        ]]
+        tabela = Table(dados, colWidths=[documento.width / colunas] * colunas, rowHeights=[0.35 * cm, None])
+        tabela.setStyle(TableStyle([
+            ("LINEABOVE", (0, 0), (-1, 0), 0.8, colors.HexColor("#172033")),
+            ("TOPPADDING", (0, 0), (-1, -1), 4),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 2),
+            ("LEFTPADDING", (0, 0), (-1, -1), 12),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 12),
+        ]))
+        historia.extend((tabela, Spacer(1, 0.25 * cm)))
+        assinaturas_pendentes.clear()
+
+    for elemento in elementos:
+        tipo = elemento[0]
+        if tipo != "assinatura":
+            adicionar_assinaturas()
+        if tipo == "h1":
+            historia.append(paragrafo(elemento[1], estilo_titulo))
+        elif tipo == "h2":
+            historia.append(paragrafo(elemento[1], estilo_secao))
+        elif tipo in {"p", "code"}:
+            historia.append(paragrafo(elemento[1], estilo_corpo))
+        elif tipo == "norma":
+            bloco = Table([[paragrafo(elemento[1], estilo_corpo)]], colWidths=[documento.width])
+            bloco.setStyle(TableStyle([
+                ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#f1f8f4")),
+                ("LINEBEFORE", (0, 0), (0, -1), 3, colors.HexColor("#2e9b62")),
+                ("LEFTPADDING", (0, 0), (-1, -1), 8), ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+                ("TOPPADDING", (0, 0), (-1, -1), 7), ("BOTTOMPADDING", (0, 0), (-1, -1), 7),
+            ]))
+            historia.extend((bloco, Spacer(1, 0.2 * cm)))
+        elif tipo == "integridade":
+            bloco = Table([[paragrafo(elemento[1], estilo_integridade)]], colWidths=[documento.width])
+            bloco.setStyle(TableStyle([
+                ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#f5f8fb")),
+                ("BOX", (0, 0), (-1, -1), 0.5, colors.HexColor("#cbd5e1")),
+                ("LEFTPADDING", (0, 0), (-1, -1), 8), ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+                ("TOPPADDING", (0, 0), (-1, -1), 7), ("BOTTOMPADDING", (0, 0), (-1, -1), 7),
+            ]))
+            historia.extend((bloco, Spacer(1, 0.2 * cm)))
+        elif tipo == "assinatura":
+            assinaturas_pendentes.append(elemento[1])
+        elif tipo == "footer":
+            historia.append(Spacer(1, 0.3 * cm))
+            historia.append(paragrafo(elemento[1], estilo_rodape))
+        elif tipo == "quebra":
+            historia.append(PageBreak())
+        elif tipo == "tabela":
+            linhas = elemento[1]
+            colunas = max(len(linha) for linha in linhas)
+            dados = [[paragrafo(celula, estilo_corpo) for celula in linha + [""] * (colunas - len(linha))] for linha in linhas]
+            larguras = [documento.width / colunas] * colunas
+            if colunas == 2:
+                larguras = [documento.width * 0.38, documento.width * 0.62]
+            tabela = Table(dados, colWidths=larguras, repeatRows=1 if len(dados) > 1 else 0)
+            tabela.setStyle(TableStyle([
+                ("GRID", (0, 0), (-1, -1), 0.4, colors.HexColor("#cbd5e1")),
+                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#eef5fb")),
+                ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                ("LEFTPADDING", (0, 0), (-1, -1), 6), ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+                ("TOPPADDING", (0, 0), (-1, -1), 5), ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+            ]))
+            historia.extend((tabela, Spacer(1, 0.25 * cm)))
+        elif tipo == "imagem":
+            try:
+                conteudo = base64.b64decode(elemento[1].split(",", 1)[1])
+                imagem = Image(BytesIO(conteudo))
+                imagem._restrictSize(documento.width, 14 * cm if "grafico" in elemento[2] else 3 * cm)
+                historia.extend((imagem, Spacer(1, 0.25 * cm)))
+            except (IndexError, ValueError):
+                continue
+    adicionar_assinaturas()
+    documento.build(historia or [paragrafo("Relatório sem conteúdo.", estilo_corpo)])
+
+
+def abrir_relatorio_html_para_impressao(conteudo_html: str, destino: str | Path) -> Path:
+    """Abre o HTML arquivado no navegador para a impressão nativa."""
+    arquivo_html = Path(destino).expanduser().with_suffix(".html")
+    arquivo_html.parent.mkdir(parents=True, exist_ok=True)
+    arquivo_html.write_text(conteudo_html, encoding="utf-8")
+    if not webbrowser.open_new_tab(arquivo_html.resolve().as_uri()):
+        raise OSError("não foi possível abrir o navegador padrão")
+    return arquivo_html
+
+
+def _localizar_navegador_para_pdf() -> Path | None:
+    """Localiza um navegador Chromium capaz de renderizar o HTML em PDF."""
+    candidatos = [
+        os.environ.get("CURVSAT_BROWSER_PATH"),
+        Path(os.environ.get("PROGRAMFILES(X86)", "")) / "Microsoft/Edge/Application/msedge.exe",
+        Path(os.environ.get("PROGRAMFILES", "")) / "Microsoft/Edge/Application/msedge.exe",
+        Path(os.environ.get("LOCALAPPDATA", "")) / "Microsoft/Edge/Application/msedge.exe",
+        Path(os.environ.get("PROGRAMFILES", "")) / "Google/Chrome/Application/chrome.exe",
+        Path(os.environ.get("LOCALAPPDATA", "")) / "Google/Chrome/Application/chrome.exe",
+    ]
+    for candidato in candidatos:
+        if candidato and Path(candidato).is_file():
+            return Path(candidato)
+    return None
+
+
+def converter_relatorio_html_para_pdf(conteudo_html: str, destino: str | Path) -> Path:
+    """Converte o HTML arquivado em PDF antes de qualquer impressão direta."""
+    navegador = _localizar_navegador_para_pdf()
+    if navegador is None:
+        raise OSError("não foi encontrado um navegador compatível para gerar o PDF")
+
+    arquivo_pdf = Path(destino).expanduser().with_suffix(".pdf")
+    arquivo_html = arquivo_pdf.with_suffix(".html")
+    arquivo_pdf.parent.mkdir(parents=True, exist_ok=True)
+    arquivo_html.write_text(conteudo_html, encoding="utf-8")
+    if arquivo_pdf.exists():
+        arquivo_pdf.unlink()
+
+    with tempfile.TemporaryDirectory(prefix="curvsat-pdf-") as perfil_temporario:
+        comando = [
+            str(navegador),
+            "--headless=new",
+            "--disable-gpu",
+            "--disable-software-rasterizer",
+            f"--user-data-dir={perfil_temporario}",
+            "--no-pdf-header-footer",
+            "--print-to-pdf-no-header",
+            f"--print-to-pdf={arquivo_pdf}",
+            arquivo_html.resolve().as_uri(),
+        ]
+        try:
+            processo = subprocess.run(
+                comando,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=90,
+                check=False,
+            )
+        except subprocess.TimeoutExpired as erro:
+            raise OSError("a conversão do relatório em PDF excedeu o tempo limite") from erro
+
+    if processo.returncode != 0 or not arquivo_pdf.is_file() or arquivo_pdf.stat().st_size < 5:
+        detalhe = (processo.stderr or processo.stdout or "falha desconhecida").strip()
+        raise OSError(f"não foi possível converter o relatório em PDF: {detalhe}")
+    if arquivo_pdf.read_bytes()[:5] != b"%PDF-":
+        raise OSError("a conversão não produziu um arquivo PDF válido")
+    return arquivo_pdf
+
+
+def enviar_relatorio_html_para_impressora(conteudo_html: str, destino: str | Path) -> Path:
+    """Converte o HTML arquivado em PDF e o envia à impressora padrão do Windows."""
+    if os.name != "nt":
+        raise OSError("a impressão direta está disponível somente no Windows")
+
+    arquivo_pdf = converter_relatorio_html_para_pdf(conteudo_html, destino)
+    os.startfile(str(arquivo_pdf), "print")
+    return arquivo_pdf
+
 
 CAMPO_UNIDADE_RELATORIO = {
     "Intensidade de peening": ("mm", "in"),
@@ -493,12 +929,43 @@ class BancoDadosPN:
             return None
         return curva if isinstance(curva, dict) else None
 
-    def obter_ultima_curva(self):
+    def atualizar_codigo_curva(self, pn, sn, codigo_curva):
+        """Grava o identificador gerado na própria curva já arquivada."""
+        pn = self._normalizar_pn(pn)
+        sn = self._normalizar_sn(sn)
+        codigo_curva = str(codigo_curva or "").strip().upper()
+        if not pn:
+            raise ValueError(tr("pn_required_save"))
+        if not re.fullmatch(r"[NAC]\d{4}", codigo_curva):
+            raise ValueError("Identificador de curva inválido.")
+
+        with self._conectar() as conexao:
+            linha = conexao.execute(
+                "SELECT curva_json FROM cadastros_pn WHERE pn = ? AND serial_number = ?", (pn, sn)
+            ).fetchone()
+            if linha is None or not linha["curva_json"]:
+                return False
+            try:
+                curva = json.loads(linha["curva_json"])
+            except (TypeError, json.JSONDecodeError):
+                return False
+            if not isinstance(curva, dict):
+                return False
+            if curva.get("codigo_curva") == codigo_curva:
+                return True
+            curva["codigo_curva"] = codigo_curva
+            conexao.execute(
+                "UPDATE cadastros_pn SET curva_json = ?, atualizado_em = ? WHERE pn = ? AND serial_number = ?",
+                (json.dumps(curva, ensure_ascii=False), _timestamp_sincronizacao(), pn, sn),
+            )
+        return True
+
+    def obter_ultima_curva(self, incluir_origem=False):
         """Retorna a curva associada ao PN salvo mais recentemente, se houver."""
         with self._conectar() as conexao:
             linha = conexao.execute(
                 """
-                SELECT curva_json FROM cadastros_pn
+                SELECT pn, serial_number, curva_json FROM cadastros_pn
                 WHERE curva_json IS NOT NULL AND curva_json <> ''
                 ORDER BY atualizado_em DESC, rowid DESC
                 LIMIT 1
@@ -510,7 +977,12 @@ class BancoDadosPN:
             curva = json.loads(linha["curva_json"])
         except (TypeError, json.JSONDecodeError):
             return None
-        return curva if isinstance(curva, dict) else None
+        if not isinstance(curva, dict):
+            return None
+        if incluir_origem:
+            curva["_cadastro_pn"] = linha["pn"]
+            curva["_cadastro_sn"] = linha["serial_number"]
+        return curva
 
     def buscar_registros(self, termo="", limite=40):
         termo = self._normalizar_pn(termo)
@@ -796,6 +1268,19 @@ class BancoDadosPN:
         """Mantém o prefixo legível e seguro para identificação do relatório."""
         prefixo = re.sub(r"[^A-Za-z0-9_-]+", "", str(prefixo or "").upper()).strip("_-")
         return prefixo[:20] or "REL"
+
+    def proximo_numero_relatorio(self, prefixo, emitido_em=None):
+        """Informa o próximo número sem reservar nem alterar a sequência."""
+        prefixo = self._normalizar_prefixo_relatorio(prefixo)
+        emitido_em = emitido_em or datetime.now()
+        with self._conectar() as conexao:
+            linha = conexao.execute(
+                "SELECT ultima_sequencia AS ultima FROM relatorios_sequencias "
+                "WHERE prefixo = ? AND ano = ?",
+                (prefixo, emitido_em.year),
+            ).fetchone()
+        sequencia = int(linha["ultima"]) + 1 if linha else 1
+        return f"{prefixo}-{sequencia:03d}-{emitido_em.year % 100:02d}"
 
     def emitir_relatorio(self, prefixo, pn, sn, renderizar):
         """Reserva a sequência anual e persiste a versão imutável do relatório.
@@ -1449,12 +1934,20 @@ def abrir_relatorio(app):
                         unit=unidade_atual,
                     ),
                 )
+        data_emissao = datetime.now()
+        numero_relatorio = app.banco_pn.proximo_numero_relatorio(app.prefixo_relatorio, data_emissao)
+        nome_arquivo = nome_arquivo_pdf_relatorio(
+            numero_relatorio,
+            dados["Peça / PN"],
+            dados["SN da peça"],
+            data_emissao,
+        )
         caminho = filedialog.asksaveasfilename(
             parent=janela,
             title=tr("save_report"),
-            defaultextension=".html",
-            filetypes=[(tr("html_report"), "*.html"), (tr("all_files"), "*.*")],
-            initialfile=tr("report_file"),
+            defaultextension=".pdf",
+            filetypes=[(tr("pdf_file"), "*.pdf")],
+            initialfile=nome_arquivo,
         )
         if not caminho:
             return
@@ -1482,13 +1975,11 @@ def abrir_relatorio(app):
                 dados["SN da peça"],
                 renderizar,
             )
-            Path(caminho).write_text(emissao["conteudo_html"], encoding="utf-8")
+            converter_relatorio_html_para_pdf(emissao["conteudo_html"], caminho)
             app.lbl_status.configure(
                 text=tr("report_generated_numbered", number=emissao["numero"]), text_color="#2ecc71"
             )
             janela.destroy()
-            if os.name == "nt":
-                os.startfile(str(caminho))
         except OSError as err:
             app.lbl_status.configure(text=tr("save_report_error", message=err), text_color="#e74c3c")
 
@@ -1515,11 +2006,11 @@ def abrir_relatorio(app):
     )
     delete_pn_button.grid(row=0, column=1, padx=8, sticky="ew")
     add_tooltip(delete_pn_button, tr("tooltip_delete_pn"))
-    generate_html_button = ctk.CTkButton(
+    generate_report_button = ctk.CTkButton(
         botoes_frame, text=tr("generate_html"), height=40, fg_color="#1f6fae", hover_color="#2f80c4", command=gerar
     )
-    generate_html_button.grid(row=0, column=2, padx=(8, 0), sticky="ew")
-    add_tooltip(generate_html_button, tr("tooltip_generate_html"))
+    generate_report_button.grid(row=0, column=2, padx=(8, 0), sticky="ew")
+    add_tooltip(generate_report_button, tr("tooltip_generate_html"))
 
     modo_compacto = None
 
@@ -1617,15 +2108,75 @@ def abrir_historico_relatorios(app):
             app.lbl_status.configure(text=tr("report_not_found"), text_color="#e74c3c")
             return
         try:
-            destino = user_data_file(f"reimpressao_{relatorio_id}.html")
-            destino.write_text(relatorio["conteudo_html"], encoding="utf-8")
+            arquivo_html = enviar_relatorio_html_para_impressora(
+                relatorio["conteudo_html"], user_data_file(f"reimpressao_{relatorio_id}.html")
+            )
             app.lbl_status.configure(
                 text=tr("report_reprint_ready", number=relatorio["numero"]), text_color="#2ecc71"
             )
-            if os.name == "nt":
-                os.startfile(str(destino))
-        except OSError as err:
-            app.lbl_status.configure(text=tr("save_report_error", message=err), text_color="#e74c3c")
+            messagebox.showinfo(
+                tr("reprint_report"),
+                f"{tr('report_reprint_ready', number=relatorio['numero'])}\n\n{arquivo_html}",
+                parent=janela,
+            )
+        except Exception as err:
+            mensagem = tr("save_report_error", message=err)
+            app.lbl_status.configure(text=mensagem, text_color="#e74c3c")
+            messagebox.showerror(tr("reprint_report"), mensagem, parent=janela)
+
+    def imprimir_em_pdf(relatorio_id):
+        relatorio = app.banco_pn.obter_relatorio_emitido(relatorio_id)
+        if not relatorio:
+            app.lbl_status.configure(text=tr("report_not_found"), text_color="#e74c3c")
+            return
+
+        try:
+            arquivo_html = abrir_relatorio_html_para_impressao(
+                relatorio["conteudo_html"], user_data_file(f"imprimir_{relatorio_id}.html")
+            )
+            app.lbl_status.configure(
+                text=tr("print_pdf_ready", number=relatorio["numero"]), text_color="#2ecc71"
+            )
+            messagebox.showinfo(
+                tr("print_pdf"),
+                f"{tr('print_pdf_ready', number=relatorio['numero'])}\n\n{arquivo_html}",
+                parent=janela,
+            )
+        except Exception as err:
+            mensagem = tr("print_pdf_error", message=err)
+            app.lbl_status.configure(text=mensagem, text_color="#e74c3c")
+            messagebox.showerror(tr("print_pdf"), mensagem, parent=janela)
+
+    def exportar_pdf(relatorio_id):
+        relatorio = app.banco_pn.obter_relatorio_emitido(relatorio_id)
+        if not relatorio:
+            app.lbl_status.configure(text=tr("report_not_found"), text_color="#e74c3c")
+            return
+
+        destino = filedialog.asksaveasfilename(
+            parent=janela,
+            title=tr("export_pdf"),
+            initialfile=tr("numbered_report_file", number=relatorio["numero"]),
+            defaultextension=".pdf",
+            filetypes=[(tr("pdf_file"), "*.pdf")],
+        )
+        if not destino:
+            return
+
+        try:
+            arquivo_pdf = converter_relatorio_html_para_pdf(relatorio["conteudo_html"], destino)
+            app.lbl_status.configure(
+                text=tr("pdf_export_ready", number=relatorio["numero"]), text_color="#2ecc71"
+            )
+            messagebox.showinfo(
+                tr("export_pdf"),
+                f"{tr('pdf_export_ready', number=relatorio['numero'])}\n\n{arquivo_pdf}",
+                parent=janela,
+            )
+        except Exception as err:
+            mensagem = tr("pdf_export_error", message=err)
+            app.lbl_status.configure(text=mensagem, text_color="#e74c3c")
+            messagebox.showerror(tr("export_pdf"), mensagem, parent=janela)
 
     def excluir(relatorio_id, numero):
         if not messagebox.askyesno(
@@ -1679,21 +2230,35 @@ def abrir_historico_relatorios(app):
                 justify="left",
                 anchor="w",
             ).grid(row=0, column=0, padx=12, pady=9, sticky="ew")
+            export_button = ctk.CTkButton(
+                item, text="\U0001F4E5", width=52, height=42, font=ctk.CTkFont(size=22),
+                command=lambda relatorio_id=relatorio["id"]: exportar_pdf(relatorio_id),
+            )
+            export_button.grid(row=0, column=1, padx=(10, 5), pady=9)
+            add_tooltip(export_button, tr("tooltip_export_pdf"))
+            pdf_button = ctk.CTkButton(
+                item, text="\U0001F4C4", width=52, height=42, font=ctk.CTkFont(size=22),
+                command=lambda relatorio_id=relatorio["id"]: imprimir_em_pdf(relatorio_id),
+            )
+            pdf_button.grid(row=0, column=2, padx=5, pady=9)
+            add_tooltip(pdf_button, tr("tooltip_print_pdf"))
             reprint_button = ctk.CTkButton(
-                item, text=tr("reprint_report"), width=130,
+                item, text="\U0001F5A8", width=52, height=42, font=ctk.CTkFont(size=22),
                 command=lambda relatorio_id=relatorio["id"]: reimprimir(relatorio_id),
             )
-            reprint_button.grid(row=0, column=1, padx=10, pady=9)
+            reprint_button.grid(row=0, column=3, padx=5, pady=9)
             add_tooltip(reprint_button, tr("tooltip_reprint_report"))
             delete_button = ctk.CTkButton(
                 item,
-                text=tr("delete_report"),
-                width=88,
+                text="\U0001F5D1",
+                width=52,
+                height=42,
+                font=ctk.CTkFont(size=22),
                 fg_color="#c0392b",
                 hover_color="#e74c3c",
                 command=lambda relatorio_id=relatorio["id"], numero=relatorio["numero"]: excluir(relatorio_id, numero),
             )
-            delete_button.grid(row=0, column=2, padx=(0, 10), pady=9)
+            delete_button.grid(row=0, column=4, padx=(5, 10), pady=9)
             add_tooltip(delete_button, tr("tooltip_delete_report"))
 
     search_button = ctk.CTkButton(busca_frame, text=tr("search"), width=105, command=atualizar)

@@ -1,4 +1,4 @@
-import os, shutil, sys, threading
+import os, secrets, shutil, sys, threading
 import tkinter as tk
 from tkinter import filedialog, messagebox
 import webbrowser
@@ -238,6 +238,24 @@ def compensar_desvio_lamina(alturas, desvio_lamina=0.0):
     return alturas_compensadas
 
 
+def gerar_codigo_curva_saturacao(tipo_lamina):
+    """Gera o identificador rastreável da curva: tipo Almen + quatro dígitos."""
+    tipo = str(tipo_lamina or "").strip().upper()
+    if tipo not in TIPOS_LAMINA:
+        raise ValueError("Tipo de lâmina Almen inválido para identificar a curva.")
+    return f"{tipo}{secrets.randbelow(10_000):04d}"
+
+
+def assinatura_curva_saturacao(tempos, alturas, desvios, tipo_lamina):
+    """Representação dos dados que determina se a curva calculada mudou."""
+    return (
+        str(tipo_lamina or "").strip().upper(),
+        tuple(float(valor) for valor in tempos),
+        tuple(float(valor) for valor in alturas),
+        tuple(float(valor) for valor in desvios),
+    )
+
+
 R2_MINIMO_CURVA_VALIDA = 0.80
 
 
@@ -448,6 +466,8 @@ class AlmenApp(ctk.CTk):
         # Nenhuma lâmina possui desvio por padrão. O usuário cadastra somente
         # as lâminas que precisam de compensação na tela de configurações.
         self.desvios_laminas = {}
+        self._codigo_curva_atual = None
+        self._assinatura_curva_atual = None
         self.logo_empresa_path = load_company_logo_path()
         self.prefixo_relatorio = load_report_prefix()
         self._arquivo_impressao = None
@@ -859,11 +879,13 @@ class AlmenApp(ctk.CTk):
             row["menu_lamina"].destroy()
 
     def _load_sample_data(self):
-        curva_salva = self.banco_pn.obter_ultima_curva()
+        curva_salva = self.banco_pn.obter_ultima_curva(incluir_origem=True)
         while self.rows:
             self.remove_row()
         if curva_salva and self._carregar_curva_salva(curva_salva):
-            self._definir_origem_curva("latest")
+            self._definir_origem_curva(
+                "latest", curva_salva.get("_cadastro_pn", ""), curva_salva.get("_cadastro_sn", "")
+            )
         else:
             self._intensidade_destaque_exemplo = None
             for tempo, altura in [(0.5, 0.11), (1.0, 0.17), (2.0, 0.22), (4.0, 0.24)]:
@@ -910,6 +932,9 @@ class AlmenApp(ctk.CTk):
         self.unidade_arco = unidade_arco
         self.tipo_lamina = curva["tipo_lamina"]
         self.tipo_exposicao = curva["tipo_exposicao"]
+        codigo_curva = str(curva.get("codigo_curva", "")).strip().upper()
+        self._codigo_curva_atual = codigo_curva if len(codigo_curva) == 5 and codigo_curva[0] in TIPOS_LAMINA and codigo_curva[1:].isdigit() else None
+        self._assinatura_curva_atual = None
         self._atualizar_textos_unidade()
         self._intensidade_destaque_exemplo = (
             curva.get("intensidade", ""), curva.get("unidade_intensidade", self.unidade_arco)
@@ -938,6 +963,10 @@ class AlmenApp(ctk.CTk):
         for tempo, altura, lamina in zip(tempos, alturas, laminas_salvas):
             nome_lamina = str(lamina).strip() if isinstance(lamina, str) else None
             self.add_row(tempo, altura, nome_lamina if nome_lamina in desvios_validos else None)
+        desvios_por_medicao = [desvios_validos.get(lamina, 0.0) if lamina else 0.0 for lamina in laminas_salvas]
+        self._assinatura_curva_atual = assinatura_curva_saturacao(
+            tempos, alturas, desvios_por_medicao, self.tipo_lamina
+        ) if self._codigo_curva_atual else None
         return True
 
     def carregar_curva_de_referencia(self, curva, router="", pn="", sn=""):
@@ -967,6 +996,20 @@ class AlmenApp(ctk.CTk):
         self.calcular_e_plotar()
         return True
 
+    def _persistir_codigo_curva_atual(self):
+        """Registra o primeiro identificador gerado na curva do PN/SN de origem."""
+        origem = getattr(self, "_origem_curva", {})
+        if origem.get("tipo") not in {"selected", "latest"}:
+            return
+        codigo = getattr(self, "_codigo_curva_atual", None)
+        pn, sn = origem.get("pn", ""), origem.get("sn", "")
+        banco = getattr(self, "banco_pn", None)
+        if codigo and pn and banco is not None:
+            try:
+                banco.atualizar_codigo_curva(pn, sn, codigo)
+            except (OSError, ValueError):
+                pass
+
     def curva_atual_para_salvar(self):
         """Cria um retrato portátil da curva calculada para reutilização como exemplo."""
         if self._ultimo_resultado is None:
@@ -991,6 +1034,7 @@ class AlmenApp(ctk.CTk):
             "unidade_arco": self.unidade_arco,
             "tipo_lamina": self.tipo_lamina,
             "tipo_exposicao": self.tipo_exposicao,
+            "codigo_curva": getattr(self, "_codigo_curva_atual", None),
         }
 
     def _obter_dados_entradas(self):
@@ -1330,6 +1374,7 @@ class AlmenApp(ctk.CTk):
             t_data, h_data, desvios = self._obter_dados_entradas()
             resultado = calcular_saturacao(t_data, h_data, desvios)
             self._ultimo_resultado = resultado
+            assinatura_atual = assinatura_curva_saturacao(t_data, h_data, desvios, self.tipo_lamina)
             A, b = resultado["A"], resultado["b"]
             t_sat, h_sat = resultado["t_sat"], resultado["h_sat"]
             t_2sat, h_2sat, r2 = resultado["t_2sat"], resultado["h_2sat"], resultado["r2"]
@@ -1358,9 +1403,15 @@ class AlmenApp(ctk.CTk):
                 self.lbl_status.configure(text=aviso_intensidade, text_color="#e74c3c")
             validacao = resultado["validacao"]
             if validacao["valida"]:
+                if assinatura_atual != self._assinatura_curva_atual or not self._codigo_curva_atual:
+                    self._codigo_curva_atual = gerar_codigo_curva_saturacao(self.tipo_lamina)
+                    self._assinatura_curva_atual = assinatura_atual
+                    self._persistir_codigo_curva_atual()
                 texto_validacao = self.t("curve_valid")
                 cor_validacao = "#16803c"
             else:
+                self._codigo_curva_atual = None
+                self._assinatura_curva_atual = None
                 motivos = "; ".join(self.t(motivo) for motivo in validacao["motivos"])
                 texto_validacao = self.t("curve_invalid", reasons=motivos)
                 cor_validacao = "#c0392b"
@@ -1391,7 +1442,10 @@ class AlmenApp(ctk.CTk):
                 markersize=6,
                 label=self.t("point_2t_legend", value=t_2sat, unit=self.abreviacao_exposicao),
             )
-            self.ax.set_title(self.t("chart_title"), fontsize=12, pad=10)
+            titulo_grafico = self.t("chart_title")
+            if self._codigo_curva_atual:
+                titulo_grafico = f"{titulo_grafico} — {self.t('curve_identifier', code=self._codigo_curva_atual)}"
+            self.ax.set_title(titulo_grafico, fontsize=12, pad=10)
             self.ax.set_xlabel(f"{self.t('exposure')} ({self.abreviacao_exposicao})")
             self.ax.set_ylabel(f"{self.t('arc_height')} ({self.unidade_arco})")
             self.ax.set_xlim(0, max(t_smooth))

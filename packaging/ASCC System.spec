@@ -4,8 +4,6 @@ from pathlib import Path
 
 PROJECT_DIR = Path(SPECPATH).parent
 VERSION_INFO_FILE = PROJECT_DIR / 'packaging' / 'version_info.txt'
-
-
 a = Analysis(
     [str(PROJECT_DIR / 'main.py')],
     pathex=[str(PROJECT_DIR)],
@@ -15,7 +13,7 @@ a = Analysis(
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=[],
+    excludes=['playwright', 'reportlab'],
     noarchive=False,
     optimize=0,
 )

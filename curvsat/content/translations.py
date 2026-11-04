@@ -50,11 +50,11 @@ _TEXTS = {
         "search_pn_placeholder": "Digite todo ou parte do Router, PN ou SN", "results": "Resultados", "search": "Buscar", "none_found": "Nenhum cadastro encontrado",
         "piece_identification": "Identificação e especificação", "process_data": "Dados do equipamento e processo", "value": "Valor",
         "standard": "Norma a ser atendida", "notes": "Observações", "save_update_pn": "Salvar / atualizar PN", "delete_pn": "Excluir PN",
-        "generate_html": "Gerar relatório HTML", "piece_pn": "Peça / PN", "reference": "Referência", "reference_cmm": "Referência CMM", "repair": "Reparo", "equipment": "Equipamento",
+        "generate_html": "Gerar relatório", "piece_pn": "Peça / PN", "reference": "Referência", "reference_cmm": "Referência CMM", "repair": "Reparo", "equipment": "Equipamento",
         "no_information": "Não informado.", "report_subtitle": "Registro técnico de ensaio e parâmetros do processo", "issued": "Emitido em {date}",
         "piece_information": "Informações da peça", "standard_to_meet": "Norma a ser atendida", "process_parameters": "Parâmetros do processo",
         "curve_results": "Resultados da curva", "saturation_chart": "Gráfico de saturação", "save_report": "Salvar relatório técnico",
-        "html_report": "Relatório HTML", "all_files": "Todos os arquivos", "report_file": "relatorio_curva_saturacao_almen.html",
+        "html_report": "Relatório HTML", "all_files": "Todos os arquivos", "report_file": "relatorio_curva_saturacao_almen.pdf",
         "pn_loaded": "Cadastro do PN {pn} carregado.", "save_pn_error": "Não foi possível salvar o PN: {message}", "pn_saved": "Cadastro do PN {pn} salvo/atualizado.",
         "pn_required_delete": "Informe a Peça / PN que deve ser removida.", "delete_registry": "Remover cadastro", "delete_confirmation": "Remover definitivamente o cadastro do PN {pn}?",
         "delete_pn_error": "Não foi possível remover o PN: {message}", "pn_removed": "Cadastro do PN {pn} removido.", "pn_not_found": "PN {pn} não foi encontrado no cadastro.",
@@ -64,7 +64,7 @@ _TEXTS = {
         "tab_analysis": "Análise de esferas", "tab_grain_size": "Granulometria", "tab_media_types": "Tipos de mídia", "tab_standards": "Normas",
     },
     "EN": {
-        "app_title": "Almen Saturation Curve Calculator", "measurements": "Almen Strip Measurements", "add_row": "+ Row", "remove_row": "- Row", "example": "Example", "settings": "Settings", "calculate": "Calculate and Plot", "generate_report": "Manage Data and Report", "print_chart": "Print chart", "technical_tables": "Technical tables", "system_references": "SYSTEM STANDARD REFERENCES", "exposure": "Exposure", "arc_height": "Arc height", "blade_deviation": "Strip / deviation", "no_deviation": "No deviation", "saturation_time": "Sat. time (T)", "intensity": "Intensity H(T)", "point_2t": "Point (2T)", "height_2t": "Height H(2T)", "fit": "Fit R²", "deviations": "Deviations", "none_applied": "none applied", "chart_title": "Almen Saturation Curve", "measured_points": "Compensated measured points", "fitted_curve": "Fitted curve ($R^2={r2:.3f}$)", "saturation_point": "Saturation T ({value:.2f} {unit})", "row_incomplete": "Fill in exposure and arc height on row {index}.", "invalid_numbers": "Use valid numbers on row {index}.", "error": "Error: {message}", "print_windows_only": "Direct printing is only available on Windows.", "chart_sent_to_printer": "Chart sent to the default printer.", "print_error": "Could not start printing: {message}", "settings_title": "Curve settings", "general_parameters": "General parameters", "language": "System language", "arc_unit": "Arc height unit", "almen_type": "Almen strip type", "exposure_unit": "Exposure unit", "registered_references": "Registered standards references", "individual_deviations": "Individual strip deviations ({unit})", "deviation_help": "Register one row for each strip with its own deviation. Enter the deviation as indicated measurement − actual value; it is subtracted only from the associated arc height.", "blade_id": "Strip identification", "deviation": "Deviation", "remove": "Remove", "add_blade": "+ Add strip / deviation", "apply_settings": "Apply settings", "blade": "Strip", "invalid_deviation": "Error: enter a valid numeric deviation for strip {index}.", "blade_required": "Error: identify strip {index}.", "unique_blades": "Error: use unique names other than 'No deviation'.", "finite_deviations": "Error: strip deviations must be finite.", "report_title": "Manage Data and Report", "report_heading": "Manage Data and Report", "pn_registry": "Router, PN or SN registry", "search_pn": "Search Router, PN or SN", "search_pn_placeholder": "Type all or part of the Router, PN or SN", "results": "Results", "search": "Search", "none_found": "No records found", "piece_identification": "Identification and specification", "process_data": "Equipment and process data", "value": "Value", "standard": "Required standard", "notes": "Notes", "save_update_pn": "Save / update PN", "delete_pn": "Delete PN", "generate_html": "Generate HTML report", "piece_pn": "Part / PN", "reference": "Reference", "repair": "Repair", "equipment": "Equipment", "no_information": "Not informed.", "report_subtitle": "Technical record of the test and process parameters", "issued": "Issued on {date}", "piece_information": "Part information", "standard_to_meet": "Required standard", "process_parameters": "Process parameters", "curve_results": "Curve results", "saturation_chart": "Saturation chart", "save_report": "Save technical report", "html_report": "HTML report", "all_files": "All files", "report_file": "almen_saturation_curve_report.html", "pn_loaded": "PN {pn} record loaded.", "save_pn_error": "Could not save PN: {message}", "pn_saved": "PN {pn} record saved/updated.", "pn_required_delete": "Enter the Part / PN to delete.", "delete_registry": "Delete record", "delete_confirmation": "Permanently delete PN {pn} record?", "delete_pn_error": "Could not delete PN: {message}", "pn_removed": "PN {pn} record deleted.", "pn_not_found": "PN {pn} was not found.", "report_generated": "Technical report generated successfully.", "save_report_error": "Could not save report: {message}", "technical_title": "Technical tables — shot peening media", "technical_heading": "Technical media and standards tables", "technical_subtitle": "Quick reference for shot analysis, grain size, media types and applicable standards.", "tab_analysis": "Shot analysis", "tab_grain_size": "Grain size", "tab_media_types": "Media types", "tab_standards": "Standards",
+        "app_title": "Almen Saturation Curve Calculator", "measurements": "Almen Strip Measurements", "add_row": "+ Row", "remove_row": "- Row", "example": "Example", "settings": "Settings", "calculate": "Calculate and Plot", "generate_report": "Manage Data and Report", "print_chart": "Print chart", "technical_tables": "Technical tables", "system_references": "SYSTEM STANDARD REFERENCES", "exposure": "Exposure", "arc_height": "Arc height", "blade_deviation": "Strip / deviation", "no_deviation": "No deviation", "saturation_time": "Sat. time (T)", "intensity": "Intensity H(T)", "point_2t": "Point (2T)", "height_2t": "Height H(2T)", "fit": "Fit R²", "deviations": "Deviations", "none_applied": "none applied", "chart_title": "Almen Saturation Curve", "measured_points": "Compensated measured points", "fitted_curve": "Fitted curve ($R^2={r2:.3f}$)", "saturation_point": "Saturation T ({value:.2f} {unit})", "row_incomplete": "Fill in exposure and arc height on row {index}.", "invalid_numbers": "Use valid numbers on row {index}.", "error": "Error: {message}", "print_windows_only": "Direct printing is only available on Windows.", "chart_sent_to_printer": "Chart sent to the default printer.", "print_error": "Could not start printing: {message}", "settings_title": "Curve settings", "general_parameters": "General parameters", "language": "System language", "arc_unit": "Arc height unit", "almen_type": "Almen strip type", "exposure_unit": "Exposure unit", "registered_references": "Registered standards references", "individual_deviations": "Individual strip deviations ({unit})", "deviation_help": "Register one row for each strip with its own deviation. Enter the deviation as indicated measurement − actual value; it is subtracted only from the associated arc height.", "blade_id": "Strip identification", "deviation": "Deviation", "remove": "Remove", "add_blade": "+ Add strip / deviation", "apply_settings": "Apply settings", "blade": "Strip", "invalid_deviation": "Error: enter a valid numeric deviation for strip {index}.", "blade_required": "Error: identify strip {index}.", "unique_blades": "Error: use unique names other than 'No deviation'.", "finite_deviations": "Error: strip deviations must be finite.", "report_title": "Manage Data and Report", "report_heading": "Manage Data and Report", "pn_registry": "Router, PN or SN registry", "search_pn": "Search Router, PN or SN", "search_pn_placeholder": "Type all or part of the Router, PN or SN", "results": "Results", "search": "Search", "none_found": "No records found", "piece_identification": "Identification and specification", "process_data": "Equipment and process data", "value": "Value", "standard": "Required standard", "notes": "Notes", "save_update_pn": "Save / update PN", "delete_pn": "Delete PN", "generate_html": "Generate report", "piece_pn": "Part / PN", "reference": "Reference", "repair": "Repair", "equipment": "Equipment", "no_information": "Not informed.", "report_subtitle": "Technical record of the test and process parameters", "issued": "Issued on {date}", "piece_information": "Part information", "standard_to_meet": "Required standard", "process_parameters": "Process parameters", "curve_results": "Curve results", "saturation_chart": "Saturation chart", "save_report": "Save technical report", "html_report": "HTML report", "all_files": "All files", "report_file": "almen_saturation_curve_report.pdf", "pn_loaded": "PN {pn} record loaded.", "save_pn_error": "Could not save PN: {message}", "pn_saved": "PN {pn} record saved/updated.", "pn_required_delete": "Enter the Part / PN to delete.", "delete_registry": "Delete record", "delete_confirmation": "Permanently delete PN {pn} record?", "delete_pn_error": "Could not delete PN: {message}", "pn_removed": "PN {pn} record deleted.", "pn_not_found": "PN {pn} was not found.", "report_generated": "Technical report generated successfully.", "save_report_error": "Could not save report: {message}", "technical_title": "Technical tables — shot peening media", "technical_heading": "Technical media and standards tables", "technical_subtitle": "Quick reference for shot analysis, grain size, media types and applicable standards.", "tab_analysis": "Shot analysis", "tab_grain_size": "Grain size", "tab_media_types": "Media types", "tab_standards": "Standards",
     },
     "ES": {
         "app_title": "Calculadora de Curva de Saturación Almen", "measurements": "Mediciones de la Lámina Almen", "add_row": "+ Fila", "remove_row": "- Fila", "example": "Ejemplo", "settings": "Configuración", "calculate": "Calcular y Generar Gráfico", "generate_report": "Gestionar Datos e Informe", "print_chart": "Imprimir gráfico", "technical_tables": "Tablas técnicas", "system_references": "REFERENCIAS NORMATIVAS DEL SISTEMA", "exposure": "Exposición", "arc_height": "Altura de arco", "blade_deviation": "Lámina / desviación", "no_deviation": "Sin desviación", "saturation_time": "Tiempo sat. (T)", "intensity": "Intensidad H(T)", "point_2t": "Punto (2T)", "height_2t": "Altura H(2T)", "fit": "Ajuste R²", "deviations": "Desviaciones", "none_applied": "ninguna aplicada", "chart_title": "Curva de Saturación Almen", "measured_points": "Puntos medidos compensados", "fitted_curve": "Curva ajustada ($R^2={r2:.3f}$)", "saturation_point": "Saturación T ({value:.2f} {unit})", "row_incomplete": "Complete exposición y altura de arco en la fila {index}.", "invalid_numbers": "Use números válidos en la fila {index}.", "error": "Error: {message}", "print_windows_only": "La impresión directa solo está disponible en Windows.", "chart_sent_to_printer": "Gráfico enviado a la impresora predeterminada.", "print_error": "No se pudo iniciar la impresión: {message}", "settings_title": "Configuración de la curva", "general_parameters": "Parámetros generales", "language": "Idioma del sistema", "arc_unit": "Unidad de altura de arco", "almen_type": "Tipo de lámina Almen", "exposure_unit": "Unidad de exposición", "registered_references": "Referencias normativas registradas", "individual_deviations": "Desviaciones individuales por lámina ({unit})", "deviation_help": "Registre una fila para cada lámina que posea su propia desviación. Introduzca la desviación como medición indicada − valor real; solo se restará de la altura de arco asociada.", "blade_id": "Identificación de la lámina", "deviation": "Desviación", "remove": "Eliminar", "add_blade": "+ Añadir lámina / desviación", "apply_settings": "Aplicar configuración", "blade": "Lámina", "invalid_deviation": "Error: introduzca una desviación numérica válida en la lámina {index}.", "blade_required": "Error: identifique la lámina {index}.", "unique_blades": "Error: use identificaciones únicas y distintas de 'Sin desviación'.", "finite_deviations": "Error: las desviaciones deben ser finitas.", "report_title": "Gestionar Datos e Informe", "report_heading": "Gestionar Datos e Informe", "pn_registry": "Registro por Router, PN o SN", "search_pn": "Buscar Router, PN o SN", "search_pn_placeholder": "Escriba todo o parte del Router, PN o SN", "results": "Resultados", "search": "Buscar", "none_found": "No se encontraron registros", "piece_identification": "Identificación y especificación", "process_data": "Datos del equipo y proceso", "value": "Valor", "standard": "Norma requerida", "notes": "Observaciones", "save_update_pn": "Guardar / actualizar PN", "delete_pn": "Eliminar PN", "generate_html": "Generar informe HTML", "piece_pn": "Pieza / PN", "reference": "Referencia", "repair": "Reparación", "equipment": "Equipo", "no_information": "No informado.", "report_subtitle": "Registro técnico de ensayo y parámetros del proceso", "issued": "Emitido el {date}", "piece_information": "Información de la pieza", "standard_to_meet": "Norma requerida", "process_parameters": "Parámetros del proceso", "curve_results": "Resultados de la curva", "saturation_chart": "Gráfico de saturación", "save_report": "Guardar informe técnico", "html_report": "Informe HTML", "all_files": "Todos los archivos", "report_file": "informe_curva_saturacion_almen.html", "pn_loaded": "Registro del PN {pn} cargado.", "save_pn_error": "No se pudo guardar el PN: {message}", "pn_saved": "Registro del PN {pn} guardado/actualizado.", "pn_required_delete": "Introduzca la Pieza / PN que desea eliminar.", "delete_registry": "Eliminar registro", "delete_confirmation": "¿Eliminar definitivamente el registro del PN {pn}?", "delete_pn_error": "No se pudo eliminar el PN: {message}", "pn_removed": "Registro del PN {pn} eliminado.", "pn_not_found": "No se encontró el PN {pn}.", "report_generated": "Informe técnico generado correctamente.", "save_report_error": "No se pudo guardar el informe: {message}", "technical_title": "Tablas técnicas — medios de shot peening", "technical_heading": "Tablas técnicas de medios y normas", "technical_subtitle": "Referencia rápida para análisis de esferas, granulometría, tipos de medios y normas aplicables.", "tab_analysis": "Análisis de esferas", "tab_grain_size": "Granulometría", "tab_media_types": "Tipos de medios", "tab_standards": "Normas",
@@ -88,7 +88,7 @@ _TEXTS["PT"].update({
     "normative_notice": "Referências SAE registradas; a conformidade exige validação do processo e dos dados do ensaio.",
     "unit_mm": "Milímetros (mm)", "unit_in": "Polegadas (in)",
     "exposure_seconds": "Segundos", "exposure_passes": "Passes", "exposure_rotations": "Rotações", "exposure_cycles": "Ciclos", "exposure_inverse_feed": "Inverso do avanço",
-    "almen_type_n": "N", "almen_type_a": "A", "almen_type_c": "C",
+    "almen_type_n": "N", "almen_type_a": "A", "almen_type_c": "C", "curve_identifier": "Identificador: {code}",
     "deviation_placeholder": "Ex.: 0,005", "point_2t_legend": "Ponto 2T ({value:.2f} {unit})", "required_peening_intensity_legend": "Faixa de intensidade de peening: {value} {unit}",
     "shot": "Esfera", "hardness": "Dureza", "nozzle": "Bico", "injector": "Injetor", "distance": "Distância", "angle": "Ângulo", "pressure": "Pressão",
     "registered_deviations": "Desvios de lâmina cadastrados", "standard_default": "SAE J443 e SAE J2597", "standard_other": "Outra norma (informar em observações)",
@@ -114,7 +114,7 @@ _TEXTS["EN"].update({
     "normative_notice": "SAE references are registered; compliance requires validation of the process and test data.",
     "unit_mm": "Millimetres (mm)", "unit_in": "Inches (in)",
     "exposure_seconds": "Seconds", "exposure_passes": "Passes", "exposure_rotations": "Rotations", "exposure_cycles": "Cycles", "exposure_inverse_feed": "Inverse feed rate",
-    "almen_type_n": "N", "almen_type_a": "A", "almen_type_c": "C",
+    "almen_type_n": "N", "almen_type_a": "A", "almen_type_c": "C", "curve_identifier": "Identifier: {code}",
     "deviation_placeholder": "E.g.: 0.005", "point_2t_legend": "Point 2T ({value:.2f} {unit})", "required_peening_intensity_legend": "Peening intensity range: {value} {unit}",
     "shot": "Shot", "hardness": "Hardness", "nozzle": "Nozzle", "injector": "Injector", "distance": "Distance", "angle": "Angle", "pressure": "Pressure",
     "registered_deviations": "Registered strip deviations", "standard_default": "SAE J443 and SAE J2597", "standard_other": "Other standard (enter in notes)",
@@ -140,7 +140,7 @@ _TEXTS["ES"].update({
     "normative_notice": "Las referencias SAE están registradas; la conformidad exige validar el proceso y los datos del ensayo.",
     "unit_mm": "Milímetros (mm)", "unit_in": "Pulgadas (in)",
     "exposure_seconds": "Segundos", "exposure_passes": "Pasadas", "exposure_rotations": "Rotaciones", "exposure_cycles": "Ciclos", "exposure_inverse_feed": "Inverso del avance",
-    "almen_type_n": "N", "almen_type_a": "A", "almen_type_c": "C",
+    "almen_type_n": "N", "almen_type_a": "A", "almen_type_c": "C", "curve_identifier": "Identificador: {code}",
     "deviation_placeholder": "Ej.: 0,005", "point_2t_legend": "Punto 2T ({value:.2f} {unit})", "required_peening_intensity_legend": "Rango de intensidad de peening: {value} {unit}",
     "shot": "Esfera", "hardness": "Dureza", "nozzle": "Boquilla", "injector": "Inyector", "distance": "Distancia", "angle": "Ángulo", "pressure": "Presión",
     "registered_deviations": "Desviaciones de lámina registradas", "standard_default": "SAE J443 y SAE J2597", "standard_other": "Otra norma (indicar en observaciones)",
@@ -198,7 +198,7 @@ _TEXTS["PT"].update({
     "reprint_report": "Reimprimir",
     "no_generated_reports": "Nenhum relatório gerado foi encontrado.",
     "report_not_found": "Relatório não encontrado.",
-    "report_reprint_ready": "Relatório {number} aberto para reimpressão.",
+    "report_reprint_ready": "Relatório {number} convertido em PDF e enviado para a impressora padrão.",
     "report_generated_numbered": "Relatório {number} gerado e arquivado com sucesso.",
 })
 _TEXTS["EN"].update({
@@ -210,7 +210,7 @@ _TEXTS["EN"].update({
     "reprint_report": "Reprint",
     "no_generated_reports": "No generated reports were found.",
     "report_not_found": "Report not found.",
-    "report_reprint_ready": "Report {number} opened for reprint.",
+    "report_reprint_ready": "Report {number} converted to PDF and sent to the default printer.",
     "report_generated_numbered": "Report {number} generated and archived successfully.",
 })
 _TEXTS["ES"].update({
@@ -222,7 +222,7 @@ _TEXTS["ES"].update({
     "reprint_report": "Reimprimir",
     "no_generated_reports": "No se encontraron informes generados.",
     "report_not_found": "Informe no encontrado.",
-    "report_reprint_ready": "Informe {number} abierto para reimpresión.",
+    "report_reprint_ready": "Informe {number} convertido a PDF y enviado a la impresora predeterminada.",
     "report_generated_numbered": "Informe {number} generado y archivado correctamente.",
 })
 
@@ -330,7 +330,7 @@ _TEXTS["PT"].update({
     "tooltip_save_update_pn": "Salva um novo cadastro de PN ou atualiza o cadastro atual.",
     "tooltip_delete_pn": "Exclui permanentemente o cadastro de PN informado.",
     "tooltip_generate_html": "Gera, numera e arquiva o relatório técnico em HTML.",
-    "tooltip_reprint_report": "Abre a versão arquivada do relatório para reimpressão.",
+    "tooltip_reprint_report": "Converte a versão arquivada em PDF antes de enviá-la à impressora padrão.",
     "tooltip_search_reports": "Filtra a lista de relatórios emitidos.",
 })
 _TEXTS["EN"].update({
@@ -355,7 +355,7 @@ _TEXTS["EN"].update({
     "tooltip_save_update_pn": "Saves a new PN record or updates the current record.",
     "tooltip_delete_pn": "Permanently deletes the entered PN record.",
     "tooltip_generate_html": "Generates, numbers and archives the HTML technical report.",
-    "tooltip_reprint_report": "Opens the archived report version for reprinting.",
+    "tooltip_reprint_report": "Converts the archived report to PDF before sending it to the default printer.",
     "tooltip_search_reports": "Filters the list of issued reports.",
 })
 _TEXTS["ES"].update({
@@ -380,7 +380,7 @@ _TEXTS["ES"].update({
     "tooltip_save_update_pn": "Guarda un nuevo registro de PN o actualiza el registro actual.",
     "tooltip_delete_pn": "Elimina permanentemente el registro de PN ingresado.",
     "tooltip_generate_html": "Genera, numera y archiva el informe técnico en HTML.",
-    "tooltip_reprint_report": "Abre la versión archivada del informe para reimprimir.",
+    "tooltip_reprint_report": "Convierte la versión archivada a PDF antes de enviarla a la impresora predeterminada.",
     "tooltip_search_reports": "Filtra la lista de informes emitidos.",
 })
 
@@ -398,9 +398,9 @@ _TEXTS["ES"].update({
 })
 
 _TEXTS["PT"].update({
-    "tooltip_developer_info": "Mostra as informacoes do desenvolvedor do sistema.",
-    "tooltip_license_sync": "Mostra a licenca do sistema e a chave de sincronizacao em nuvem.",
-    "tooltip_about_system": "Mostra a versao e as informacoes gerais do sistema.",
+    "tooltip_developer_info": "Mostra as informações do desenvolvedor do sistema.",
+    "tooltip_license_sync": "Mostra a licença do sistema e a chave de sincronização em nuvem.",
+    "tooltip_about_system": "Mostra a versão e as informações gerais do sistema.",
 })
 _TEXTS["EN"].update({
     "tooltip_developer_info": "Shows the system developer information.",
@@ -770,3 +770,63 @@ def technical_content(language: str | None = None) -> dict:
 
 def html_language(language: str | None = None) -> str:
     return {"PT": "pt-BR", "EN": "en", "ES": "es"}.get(language or load_language(), "pt-BR")
+
+
+_TEXTS["PT"].update({
+    "print_pdf": "Imprimir / salvar em PDF",
+    "print_pdf_ready": "Relatório {number} aberto no navegador. Use Imprimir e Salvar como PDF.",
+    "print_pdf_error": "Não foi possível abrir o relatório para impressão: {message}",
+    "tooltip_print_pdf": "Abre o HTML arquivado no navegador para salvar o PDF com a impressão nativa.",
+    "export_pdf": "Exportar PDF",
+    "pdf_file": "Arquivo PDF",
+    "pdf_export_ready": "Relatório {number} exportado em PDF.",
+    "pdf_export_unavailable": "Navegador compatível não encontrado para exportar PDF.",
+    "pdf_export_error": "Não foi possível exportar o PDF: {message}",
+    "tooltip_export_pdf": "Exporta diretamente a versão arquivada em PDF.",
+})
+_TEXTS["EN"].update({
+    "print_pdf": "Print / save as PDF",
+    "print_pdf_ready": "Report {number} opened in the browser. Use Print and Save as PDF.",
+    "print_pdf_error": "Could not open the report for printing: {message}",
+    "tooltip_print_pdf": "Opens the archived HTML in the browser to save the PDF using native printing.",
+    "export_pdf": "Export PDF",
+    "pdf_file": "PDF file",
+    "pdf_export_ready": "Report {number} exported to PDF.",
+    "pdf_export_unavailable": "No compatible browser was found to export PDF.",
+    "pdf_export_error": "Could not export PDF: {message}",
+    "tooltip_export_pdf": "Directly exports the archived report as PDF.",
+})
+_TEXTS["ES"].update({
+    "print_pdf": "Imprimir / guardar como PDF",
+    "print_pdf_ready": "El informe {number} se abrió en el navegador. Use Imprimir y Guardar como PDF.",
+    "print_pdf_error": "No se pudo abrir el informe para imprimir: {message}",
+    "tooltip_print_pdf": "Abre el HTML archivado en el navegador para guardar el PDF con la impresión nativa.",
+    "export_pdf": "Exportar PDF",
+    "pdf_file": "Archivo PDF",
+    "pdf_export_ready": "Informe {number} exportado a PDF.",
+    "pdf_export_unavailable": "No se encontro un navegador compatible para exportar PDF.",
+    "pdf_export_error": "No se pudo exportar el PDF: {message}",
+    "tooltip_export_pdf": "Exporta directamente la version archivada a PDF.",
+})
+
+_TEXTS["PT"].update({
+    "generate_html": "Gerar relatório",
+    "report_file": "relatorio_curva_saturacao_almen.pdf",
+    "numbered_report_file": "relatorio_{number}.pdf",
+    "report_generated_numbered": "Relatório {number} exportado em PDF e arquivado com sucesso.",
+    "tooltip_generate_html": "Gera, numera, arquiva e exporta o relatório técnico em PDF.",
+})
+_TEXTS["EN"].update({
+    "generate_html": "Generate report",
+    "report_file": "almen_saturation_curve_report.pdf",
+    "numbered_report_file": "report_{number}.pdf",
+    "report_generated_numbered": "Report {number} exported as PDF and archived successfully.",
+    "tooltip_generate_html": "Generates, numbers, archives and exports the technical report as PDF.",
+})
+_TEXTS["ES"].update({
+    "generate_html": "Generar informe",
+    "report_file": "informe_curva_saturacion_almen.pdf",
+    "numbered_report_file": "informe_{number}.pdf",
+    "report_generated_numbered": "Informe {number} exportado a PDF y archivado correctamente.",
+    "tooltip_generate_html": "Genera, numera, archiva y exporta el informe técnico a PDF.",
+})
