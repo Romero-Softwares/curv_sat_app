@@ -1,17 +1,17 @@
 {
   "app": "CurvSat",
-  "version": "1.0.5",
-  "release_notes": "Inclui metadados completos do executavel no Windows.",
-  "download_url": "https://merotec.online/download/ASCC-System-1.0.5.exe",
+  "version": "1.0.6",
+  "release_notes": "Inclui identificador persistente da curva de saturacao e correcoes de traducao.",
+  "download_url": "https://merotec.online/download/ASCC-System-1.0.6.exe",
   "artifact": {
-    "name": "ASCC-System-1.0.5.exe",
-    "sha256": "7108db26dc459fa5a8f05ac7d16f4de272098a1574dbf636c53f96e3388bc0fd",
-    "size": 78178846
+    "name": "ASCC-System-1.0.6.exe",
+    "sha256": "1df0b8863560ba16d21654e98ecface8053946b33684585f822a59569ae1cd1e",
+    "size": 78208891
   },
   "local_signature": {
     "format": "merotec.release-manifest.v1",
     "algorithm": "Ed25519",
     "key_id": "ed25519:e587daae6f8fd5e563622814",
-    "value": "HKzqD61E1qADr87P7jCCQ-2M4oJ6tuXPz0GH-N8UiYQy_elhwp5z6hMEOttZ7VoJQssyp7Vd1XTxvOgmBdd4Dw"
+    "value": "18rsPB3UlvCaJ55XZcZpARleM7Y7S7p4na3lG6BxYeAatpb1rqo4byFDc8jlafp5J-FqtcSdBQEJ6hXjQ-ZbCg"
   }
 }
