@@ -1,22 +1,33 @@
-"""Sincroniza o estado de licenças com o projeto Supabase do produto.
+"""Cliente HTTP da API de sincronização CurvSat.
 
-Somente a chave publishable é distribuída. Ela é enviada exclusivamente no
-cabeçalho ``apikey`` porque chaves ``sb_publishable`` não são JWTs.
+A API SQLite do servidor expõe as mesmas RPCs usadas anteriormente pelo
+Supabase. O destino é configurável por ambiente para que cada instalação use
+o servidor da empresa sem distribuir chaves administrativas no aplicativo.
 """
 
 from __future__ import annotations
 
 import hashlib
 import json
+import os
 from dataclasses import dataclass
 from datetime import date
 from typing import Any
 from urllib.error import HTTPError, URLError
+from urllib.parse import urlsplit, urlunsplit
 from urllib.request import Request, urlopen
 
 
-SUPABASE_URL = "https://eizufvquvqdcwrojslfm.supabase.co"
-SUPABASE_PUBLISHABLE_KEY = "sb_publishable_Bm1QBy7tqNaffK2ozkmxJw_K15Oe8t3"
+# O aplicativo distribuído sincroniza com o servidor público da Merotec.
+# CURVSAT_SYNC_URL permanece disponível para desenvolvimento, homologação e
+# instalações privadas que hospedem a mesma API.
+DEFAULT_SYNC_SERVER_URL = "https://merotec.online"
+SYNC_SERVER_URL_ENV = "CURVSAT_SYNC_URL"
+SYNC_API_KEY_ENV = "CURVSAT_SYNC_API_KEY"
+# Alguns provedores de borda bloqueiam o agente genérico ``Python-urllib``.
+# Identificamos o cliente de forma estável para que as RPCs públicas não sejam
+# confundidas com tráfego automatizado anônimo.
+SYNC_USER_AGENT = "CurvSat/1.0 (desktop-sync)"
 SYNC_RPC_PATH = "/rest/v1/rpc/sync_curvsat_license"
 SYSTEM_DATA_SYNC_RPC_PATH = "/rest/v1/rpc/sync_curvsat_system_data"
 _VALID_REMOTE_STATUSES = frozenset({"active", "suspended", "revoked"})
@@ -38,15 +49,38 @@ def activation_hash(activation_code: str) -> str:
     return hashlib.sha256(activation_code.encode("utf-8")).hexdigest()
 
 
-def _request_json(url: str, payload: dict[str, Any], timeout: float) -> Any:
+def sync_server_url() -> str:
+    """Obtem a URL base do servidor, validando-a antes da conexao."""
+    configured = os.environ.get(SYNC_SERVER_URL_ENV, DEFAULT_SYNC_SERVER_URL).strip()
+    try:
+        parsed = urlsplit(configured)
+    except ValueError as error:
+        raise LicenseSyncError("A URL do servidor de sincronizacao e invalida.") from error
+    if (
+        parsed.scheme not in {"http", "https"}
+        or not parsed.netloc
+        or parsed.username is not None
+        or parsed.password is not None
+        or parsed.query
+        or parsed.fragment
+    ):
+        raise LicenseSyncError("A URL do servidor de sincronizacao e invalida.")
+    return urlunsplit((parsed.scheme, parsed.netloc, parsed.path.rstrip("/"), "", ""))
+
+
+def _request_json(path: str, payload: dict[str, Any], timeout: float) -> Any:
+    api_key = os.environ.get(SYNC_API_KEY_ENV, "").strip()
+    headers = {
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+        "User-Agent": SYNC_USER_AGENT,
+    }
+    if api_key:
+        headers["apikey"] = api_key
     request = Request(
-        url,
+        f"{sync_server_url()}{path}",
         data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
-        headers={
-            "apikey": SUPABASE_PUBLISHABLE_KEY,
-            "Content-Type": "application/json",
-            "Accept": "application/json",
-        },
+        headers=headers,
         method="POST",
     )
     try:
@@ -93,7 +127,7 @@ def sync_license(
         "p_organization": organization,
         "p_expires_on": expires_on,
     }
-    response = _request_json(f"{SUPABASE_URL}{SYNC_RPC_PATH}", payload, timeout)
+    response = _request_json(SYNC_RPC_PATH, payload, timeout)
     if not isinstance(response, list) or len(response) != 1 or not isinstance(response[0], dict):
         raise LicenseSyncError("O servidor retornou um estado de licença inválido.")
 
@@ -131,7 +165,7 @@ def sync_system_data(
         "p_records": records,
         "p_reports": reports,
     }
-    response = _request_json(f"{SUPABASE_URL}{SYSTEM_DATA_SYNC_RPC_PATH}", payload, timeout)
+    response = _request_json(SYSTEM_DATA_SYNC_RPC_PATH, payload, timeout)
     # A RPC retorna ``jsonb``. O PostgREST devolve esse valor diretamente como
     # objeto JSON; algumas vers\u00f5es/instala\u00e7\u00f5es anteriores o encapsulam em uma
     # linha com o nome da fun\u00e7\u00e3o. Aceitamos ambos para manter os clientes

@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import json
+import os
 import unittest
 from urllib.error import HTTPError
 from unittest.mock import patch
 
-from curvsat.services.supabase import activation_hash, sync_license, sync_system_data
+from curvsat.services.supabase import activation_hash, sync_license, sync_server_url, sync_system_data
 
 
 class _Response:
@@ -25,8 +26,16 @@ class _Response:
 
 
 class SupabaseServiceTests(unittest.TestCase):
+    def test_sync_uses_public_merotec_server_by_default(self):
+        with patch.dict(os.environ, {}, clear=True):
+            self.assertEqual(sync_server_url(), "https://merotec.online")
+
     @patch("curvsat.services.supabase.urlopen")
-    def test_sync_uses_publishable_key_only_in_apikey_header(self, mocked_urlopen):
+    @patch.dict(os.environ, {
+        "CURVSAT_SYNC_URL": "https://sync.example.test/curvsat/",
+        "CURVSAT_SYNC_API_KEY": "chave-da-empresa",
+    }, clear=True)
+    def test_sync_uses_configured_server_and_api_key(self, mocked_urlopen):
         mocked_urlopen.return_value = _Response([
             {"status": "active", "matched": True, "last_seen_at": "2026-10-11T20:00:00+00:00"}
         ])
@@ -38,7 +47,12 @@ class SupabaseServiceTests(unittest.TestCase):
         )
 
         request = mocked_urlopen.call_args.args[0]
-        self.assertEqual(request.get_header("Apikey"), "sb_publishable_Bm1QBy7tqNaffK2ozkmxJw_K15Oe8t3")
+        self.assertEqual(
+            request.full_url,
+            "https://sync.example.test/curvsat/rest/v1/rpc/sync_curvsat_license",
+        )
+        self.assertEqual(request.get_header("Apikey"), "chave-da-empresa")
+        self.assertEqual(request.get_header("User-agent"), "CurvSat/1.0 (desktop-sync)")
         self.assertIsNone(request.get_header("Authorization"))
         self.assertEqual(
             json.loads(request.data.decode("utf-8"))["p_license_hash"],
@@ -55,6 +69,7 @@ class SupabaseServiceTests(unittest.TestCase):
         self.assertEqual(digest, activation_hash(code))
 
     @patch("curvsat.services.supabase.urlopen")
+    @patch.dict(os.environ, {"CURVSAT_SYNC_URL": "http://127.0.0.1:8550"}, clear=True)
     def test_system_sync_sends_structured_data_to_dedicated_rpc(self, mocked_urlopen):
         # Uma RPC que retorna jsonb \u00e9 devolvida diretamente pelo PostgREST,
         # sem uma lista e sem o nome da fun\u00e7\u00e3o como chave envolvente.
@@ -71,7 +86,7 @@ class SupabaseServiceTests(unittest.TestCase):
 
         request = mocked_urlopen.call_args.args[0]
         self.assertTrue(request.full_url.endswith("/rpc/sync_curvsat_system_data"))
-        self.assertEqual(request.get_header("Apikey"), "sb_publishable_Bm1QBy7tqNaffK2ozkmxJw_K15Oe8t3")
+        self.assertIsNone(request.get_header("Apikey"))
         self.assertIsNone(request.get_header("Authorization"))
         self.assertEqual(json.loads(request.data.decode("utf-8"))["p_records"][0]["pn"], "PN-1")
         self.assertEqual(remote["records"], [])
@@ -107,6 +122,11 @@ class SupabaseServiceTests(unittest.TestCase):
                 records=[],
                 reports=[],
             )
+
+    @patch.dict(os.environ, {"CURVSAT_SYNC_URL": "ftp://sync.example.test"}, clear=True)
+    def test_rejects_invalid_server_url_before_network_request(self):
+        with self.assertRaisesRegex(RuntimeError, "URL do servidor"):
+            sync_server_url()
 
 
 if __name__ == "__main__":

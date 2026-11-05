@@ -936,7 +936,7 @@ class BancoDadosPN:
         codigo_curva = str(codigo_curva or "").strip().upper()
         if not pn:
             raise ValueError(tr("pn_required_save"))
-        if not re.fullmatch(r"[NAC]\d{4}", codigo_curva):
+        if not re.fullmatch(r"[NAC][0-9A-Z]{4}", codigo_curva):
             raise ValueError("Identificador de curva inválido.")
 
         with self._conectar() as conexao:

@@ -1,4 +1,6 @@
-import os, secrets, shutil, sys, threading
+import hashlib
+import json
+import os, re, shutil, sys, threading
 import tkinter as tk
 from tkinter import filedialog, messagebox
 import webbrowser
@@ -238,22 +240,59 @@ def compensar_desvio_lamina(alturas, desvio_lamina=0.0):
     return alturas_compensadas
 
 
-def gerar_codigo_curva_saturacao(tipo_lamina):
-    """Gera o identificador rastreável da curva: tipo Almen + quatro dígitos."""
-    tipo = str(tipo_lamina or "").strip().upper()
-    if tipo not in TIPOS_LAMINA:
-        raise ValueError("Tipo de lâmina Almen inválido para identificar a curva.")
-    return f"{tipo}{secrets.randbelow(10_000):04d}"
-
-
-def assinatura_curva_saturacao(tempos, alturas, desvios, tipo_lamina):
-    """Representação dos dados que determina se a curva calculada mudou."""
+def assinatura_curva_saturacao(
+    tempos,
+    alturas,
+    desvios,
+    tipo_lamina,
+    unidade_arco=None,
+    tipo_exposicao=None,
+):
+    """Representação canônica dos dados que definem uma curva de saturação."""
     return (
         str(tipo_lamina or "").strip().upper(),
+        str(unidade_arco or "").strip().lower(),
+        str(tipo_exposicao or "").strip().lower(),
         tuple(float(valor) for valor in tempos),
         tuple(float(valor) for valor in alturas),
         tuple(float(valor) for valor in desvios),
     )
+
+
+def gerar_codigo_curva_saturacao(assinatura):
+    """Cria um identificador imutável a partir da assinatura da curva.
+
+    O código não depende do PN, do número de série nem da ordem de seleção.
+    Assim, dados idênticos sempre apontam para o mesmo conjunto de lâminas.
+    """
+    try:
+        tipo, unidade_arco, tipo_exposicao, tempos, alturas, desvios = assinatura
+    except (TypeError, ValueError) as err:
+        raise ValueError("Assinatura de curva inválida para identificar a curva.") from err
+    tipo = str(tipo or "").strip().upper()
+    if tipo not in TIPOS_LAMINA:
+        raise ValueError("Tipo de lâmina Almen inválido para identificar a curva.")
+
+    dados_canonicos = {
+        "alturas": [float(valor).hex() for valor in alturas],
+        "desvios": [float(valor).hex() for valor in desvios],
+        "tipo_exposicao": str(tipo_exposicao or "").strip().lower(),
+        "tempos": [float(valor).hex() for valor in tempos],
+        "tipo_lamina": tipo,
+        "unidade_arco": str(unidade_arco or "").strip().lower(),
+    }
+    digest = hashlib.sha256(
+        json.dumps(dados_canonicos, ensure_ascii=True, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest().upper()
+    # O tipo da lâmina e quatro caracteres base 36 mantêm o identificador
+    # compacto (cinco caracteres) sem depender do PN, SN ou ordem de seleção.
+    valor = int(digest[:12], 16) % (36 ** 4)
+    alfabeto = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+    sufixo = ""
+    for _ in range(4):
+        valor, resto = divmod(valor, len(alfabeto))
+        sufixo = alfabeto[resto] + sufixo
+    return f"{tipo}{sufixo}"
 
 
 R2_MINIMO_CURVA_VALIDA = 0.80
@@ -933,7 +972,8 @@ class AlmenApp(ctk.CTk):
         self.tipo_lamina = curva["tipo_lamina"]
         self.tipo_exposicao = curva["tipo_exposicao"]
         codigo_curva = str(curva.get("codigo_curva", "")).strip().upper()
-        self._codigo_curva_atual = codigo_curva if len(codigo_curva) == 5 and codigo_curva[0] in TIPOS_LAMINA and codigo_curva[1:].isdigit() else None
+        codigo_assinado = bool(re.fullmatch(r"[NAC][0-9A-Z]{4}", codigo_curva))
+        self._codigo_curva_atual = codigo_curva if codigo_assinado else None
         self._assinatura_curva_atual = None
         self._atualizar_textos_unidade()
         self._intensidade_destaque_exemplo = (
@@ -965,7 +1005,12 @@ class AlmenApp(ctk.CTk):
             self.add_row(tempo, altura, nome_lamina if nome_lamina in desvios_validos else None)
         desvios_por_medicao = [desvios_validos.get(lamina, 0.0) if lamina else 0.0 for lamina in laminas_salvas]
         self._assinatura_curva_atual = assinatura_curva_saturacao(
-            tempos, alturas, desvios_por_medicao, self.tipo_lamina
+            tempos,
+            alturas,
+            desvios_por_medicao,
+            self.tipo_lamina,
+            self.unidade_arco,
+            self.tipo_exposicao,
         ) if self._codigo_curva_atual else None
         return True
 
@@ -1374,7 +1419,14 @@ class AlmenApp(ctk.CTk):
             t_data, h_data, desvios = self._obter_dados_entradas()
             resultado = calcular_saturacao(t_data, h_data, desvios)
             self._ultimo_resultado = resultado
-            assinatura_atual = assinatura_curva_saturacao(t_data, h_data, desvios, self.tipo_lamina)
+            assinatura_atual = assinatura_curva_saturacao(
+                t_data,
+                h_data,
+                desvios,
+                self.tipo_lamina,
+                self.unidade_arco,
+                self.tipo_exposicao,
+            )
             A, b = resultado["A"], resultado["b"]
             t_sat, h_sat = resultado["t_sat"], resultado["h_sat"]
             t_2sat, h_2sat, r2 = resultado["t_2sat"], resultado["h_2sat"], resultado["r2"]
@@ -1403,8 +1455,9 @@ class AlmenApp(ctk.CTk):
                 self.lbl_status.configure(text=aviso_intensidade, text_color="#e74c3c")
             validacao = resultado["validacao"]
             if validacao["valida"]:
-                if assinatura_atual != self._assinatura_curva_atual or not self._codigo_curva_atual:
-                    self._codigo_curva_atual = gerar_codigo_curva_saturacao(self.tipo_lamina)
+                codigo_assinado = gerar_codigo_curva_saturacao(assinatura_atual)
+                if self._codigo_curva_atual != codigo_assinado:
+                    self._codigo_curva_atual = codigo_assinado
                     self._assinatura_curva_atual = assinatura_atual
                     self._persistir_codigo_curva_atual()
                 texto_validacao = self.t("curve_valid")

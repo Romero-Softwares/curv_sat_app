@@ -359,7 +359,8 @@ def abrir_licenca_sincronizacao(parent: ctk.CTk) -> None:
                 elif result["result"] == "mismatch":
                     sync_status.configure(text=tr("license_sync_mismatch"), text_color="#a23b2a")
                 elif result["result"] == "offline":
-                    sync_status.configure(text=tr("license_sync_offline"), text_color="#a2672a")
+                    message = result.get("message") or tr("license_sync_offline")
+                    sync_status.configure(text=message, text_color="#a2672a")
 
             try:
                 janela.after(0, atualizar_tela)

@@ -69,3 +69,16 @@ ativação. Depois de ativado para a mesma organização, ele poderá recuperar 
 dados da organização na nuvem. A migração atual do Supabase cobre somente a
 licença; a sincronização de dados será adicionada com autenticação por
 organização e RLS, sem distribuir chaves administrativas no executável.
+
+## Servidor de sincronização
+
+O diretório `server/` inclui uma API FastAPI com SQLite que reproduz as RPCs
+de sincronização do Supabase. Ela armazena configurações, cadastros de PN,
+curvas salvas e relatórios por licença, com merge por data e propagação de
+exclusões. Consulte [server/SYNC_API.md](server/SYNC_API.md) para executar e
+proteger a API.
+
+O aplicativo desktop usa `https://merotec.online` por padrão. Para uma
+instalação de desenvolvimento ou um servidor privado, defina
+`CURVSAT_SYNC_URL` e, quando a API exigir autenticação, `CURVSAT_SYNC_API_KEY`
+antes de iniciar o aplicativo.

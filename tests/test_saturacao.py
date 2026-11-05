@@ -139,10 +139,24 @@ class CalcularSaturacaoTests(unittest.TestCase):
         self.assertEqual(linhas_recarregadas[0], (1.0, 0.1, "L-NEG"))
         self.assertEqual(linhas_recarregadas[1], (2.0, 0.17, "L-ZERO"))
 
-    def test_codigo_da_curva_usa_tipo_de_lamina_e_quatro_digitos(self):
-        codigo = gerar_codigo_curva_saturacao("N")
+    def test_codigo_da_curva_e_assinatura_estavel_dos_dados(self):
+        assinatura = (
+            "N", "mm", "seconds", (1.0, 2.0, 4.0, 8.0),
+            (0.1, 0.17, 0.22, 0.24), (0.0, 0.0, 0.0, 0.0),
+        )
 
-        self.assertRegex(codigo, r"^N\d{4}$")
+        codigo = gerar_codigo_curva_saturacao(assinatura)
+
+        self.assertRegex(codigo, r"^N[0-9A-Z]{4}$")
+        self.assertLessEqual(len(codigo), 5)
+        self.assertEqual(codigo, gerar_codigo_curva_saturacao(assinatura))
+        self.assertNotEqual(
+            codigo,
+            gerar_codigo_curva_saturacao((
+                "N", "mm", "seconds", (1.0, 2.0, 4.0, 8.0),
+                (0.1, 0.17, 0.22, 0.241), (0.0, 0.0, 0.0, 0.0),
+            )),
+        )
 
     def test_identificador_gerado_fica_persistido_na_curva_do_pn(self):
         curva = {
@@ -156,8 +170,9 @@ class CalcularSaturacaoTests(unittest.TestCase):
             banco = BancoDadosPN(Path(diretorio) / "cadastros.db")
             banco.salvar({"Peça / PN": "PN-100", "SN da peça": "SN-7"}, curva)
 
-            self.assertTrue(banco.atualizar_codigo_curva("PN-100", "SN-7", "A4832"))
-            self.assertEqual(banco.obter_curva("PN-100", "SN-7")["codigo_curva"], "A4832")
+            codigo = "A12B3"
+            self.assertTrue(banco.atualizar_codigo_curva("PN-100", "SN-7", codigo))
+            self.assertEqual(banco.obter_curva("PN-100", "SN-7")["codigo_curva"], codigo)
 
     def test_indicador_informa_a_origem_dos_dados_da_curva(self):
         app = SimpleNamespace(

@@ -19,7 +19,10 @@ licensing/release_signing_private_key.json
 chave_ativacao.txt
 output/
 tmp/
-server/
+server/data/
+server/*.db
+server/*.db-shm
+server/*.db-wal
 release-*.log
 release-*.err.log
 relatorio_*.html
