@@ -5,3 +5,4 @@ scipy
 fastapi
 uvicorn
 cryptography>=42,<46
+reportlab>=3.6.13,<5

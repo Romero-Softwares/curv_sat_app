@@ -46,6 +46,28 @@ class DataSyncTests(unittest.TestCase):
             tombstone = banco.exportar_para_sincronizacao()["records"]
             self.assertEqual(banco.importar_da_sincronizacao(tombstone, [])["records"], 0)
 
+    def test_import_resolves_curve_code_collision(self):
+        with TemporaryDirectory() as directory:
+            banco = BancoDadosPN(Path(directory) / "dados.db")
+            records = [
+                {
+                    "pn": "PN-1", "serial_number": "", "data": {"Peça / PN": "PN-1"},
+                    "curve": {"tipo_lamina": "A", "codigo_curva": "A00000"},
+                    "updated_at": "2026-11-06T10:00:00+00:00", "deleted": False,
+                },
+                {
+                    "pn": "PN-2", "serial_number": "", "data": {"Peça / PN": "PN-2"},
+                    "curve": {"tipo_lamina": "A", "codigo_curva": "A00000"},
+                    "updated_at": "2026-11-06T10:00:00+00:00", "deleted": False,
+                },
+            ]
+
+            self.assertEqual(banco.importar_da_sincronizacao(records, [])["records"], 2)
+            self.assertEqual(
+                banco.obter_curva("PN-1")["codigo_curva"],
+                banco.obter_curva("PN-2")["codigo_curva"],
+            )
+
     def test_import_preserves_reports_and_renames_number_collision(self):
         with TemporaryDirectory() as directory:
             banco = BancoDadosPN(Path(directory) / "dados.db")

@@ -284,12 +284,12 @@ def gerar_codigo_curva_saturacao(assinatura):
     digest = hashlib.sha256(
         json.dumps(dados_canonicos, ensure_ascii=True, sort_keys=True, separators=(",", ":")).encode("utf-8")
     ).hexdigest().upper()
-    # O tipo da lâmina e quatro caracteres base 36 mantêm o identificador
-    # compacto (cinco caracteres) sem depender do PN, SN ou ordem de seleção.
-    valor = int(digest[:12], 16) % (36 ** 4)
+    # O hash apenas escolhe o primeiro candidato compacto. A reserva
+    # persistente no BancoDadosPN resolve qualquer colisão com outro registro.
+    valor = int(digest, 16) % (36 ** 5)
     alfabeto = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"
     sufixo = ""
-    for _ in range(4):
+    for _ in range(5):
         valor, resto = divmod(valor, len(alfabeto))
         sufixo = alfabeto[resto] + sufixo
     return f"{tipo}{sufixo}"
@@ -495,7 +495,10 @@ class AlmenApp(ctk.CTk):
 
         self.idioma = load_language()
         self.title(self.t("app_title"))
-        self.geometry("1120x700")
+        largura_janela, altura_janela = 1120, 700
+        posicao_x = (self.winfo_screenwidth() - largura_janela) // 2
+        posicao_y = (self.winfo_screenheight() - altura_janela) // 2
+        self.geometry(f"{largura_janela}x{altura_janela}+{posicao_x}+{posicao_y}")
         self.minsize(950, 600)
 
         self.rows = []
@@ -585,21 +588,23 @@ class AlmenApp(ctk.CTk):
 
     def _mostrar_atualizacao(self, atualizacao):
         """Exibe a nova versão e só abre o download após confirmação."""
-        detalhes = atualizacao.release_notes or "Consulte as notas da versão para mais detalhes."
-        mensagem = (
-            f"Há uma nova versão disponível: {atualizacao.version}.\n\n"
-            f"Versão instalada: {APP_VERSION}.\n\n{detalhes}"
+        detalhes = atualizacao.release_notes or self.t("update_release_notes_fallback")
+        mensagem = self.t(
+            "update_available_message",
+            version=atualizacao.version,
+            installed=APP_VERSION,
+            details=detalhes,
         )
         if atualizacao.download_url:
             confirmar = messagebox.askyesno(
-                "Atualização disponível",
-                f"{mensagem}\n\nDeseja abrir o download agora?",
+                self.t("update_available_title"),
+                self.t("update_open_download", message=mensagem),
                 parent=self,
             )
             if confirmar:
                 webbrowser.open(atualizacao.download_url)
             return
-        messagebox.showinfo("Atualização disponível", mensagem, parent=self)
+        messagebox.showinfo(self.t("update_available_title"), mensagem, parent=self)
 
     def t(self, key, **values):
         return tr(key, self.idioma, **values)
@@ -688,6 +693,13 @@ class AlmenApp(ctk.CTk):
         self.scroll_table = ctk.CTkScrollableFrame(left_frame, label_text="")
         self.scroll_table.grid(row=2, column=0, padx=15, pady=5, sticky="nsew")
         self.scroll_table.grid_columnconfigure((0, 1, 2), weight=1)
+        self.cabecalhos_medicoes = [
+            ctk.CTkLabel(self.scroll_table, anchor="w", font=ctk.CTkFont(size=12, weight="bold"), text_color="#4b5563"),
+            ctk.CTkLabel(self.scroll_table, anchor="w", font=ctk.CTkFont(size=12, weight="bold"), text_color="#4b5563"),
+            ctk.CTkLabel(self.scroll_table, anchor="w", font=ctk.CTkFont(size=12, weight="bold"), text_color="#4b5563"),
+        ]
+        for coluna, cabecalho in enumerate(self.cabecalhos_medicoes):
+            cabecalho.grid(row=0, column=coluna, padx=5, pady=(4, 2), sticky="ew")
 
         calculate_button = ctk.CTkButton(
             left_frame,
@@ -749,7 +761,11 @@ class AlmenApp(ctk.CTk):
             corner_radius=6,
         )
         self.lbl_origem_curva.grid(row=0, column=0, padx=10, pady=(10, 0), sticky="ew")
+
         self.fig, self.ax = plt.subplots(figsize=(6, 5), facecolor="#ffffff")
+        # A janela não usa o recorte automático da impressão; aproveita a área
+        # horizontal disponível sem alterar o enquadramento salvo para imprimir.
+        self.fig.subplots_adjust(left=0.12, right=0.985, bottom=0.12, top=0.90)
         self._format_axes()
         self.canvas = FigureCanvasTkAgg(self.fig, master=right_frame)
         self.canvas.get_tk_widget().grid(row=1, column=0, padx=10, pady=10, sticky="nsew")
@@ -759,7 +775,7 @@ class AlmenApp(ctk.CTk):
             width=150,
             command=self.imprimir_grafico,
         )
-        self.print_button.place(relx=1.0, x=-14, y=14, anchor="ne")
+        self.print_button.place(relx=1.0, rely=1.0, x=-14, y=-2, anchor="se")
         add_tooltip(self.print_button, self.t("tooltip_print_chart"))
 
         referencia_frame = ctk.CTkFrame(self, corner_radius=8, fg_color="#1f344a")
@@ -867,12 +883,15 @@ class AlmenApp(ctk.CTk):
         #self.ax.grid(True, linestyle="--", alpha=0.55, color="#cbd5e1")
 
     def _atualizar_textos_unidade(self):
-        self.scroll_table.configure(
-            label_text=(
-                f"{self.t('exposure')} ({self.abreviacao_exposicao})  |  "
-                f"{self.t('arc_height')} ({self.unidade_arco})  |  {self.t('blade_deviation')}"
-            )
+        # Mantém somente um cabeçalho curto, alinhado a cada coluna da tabela.
+        self.scroll_table.configure(label_text="")
+        textos_cabecalho = (
+            f"{self.t('exposure')} ({self.abreviacao_exposicao})",
+            f"{self.t('arc_height')} ({self.unidade_arco})",
+            self.t("blade_deviation"),
         )
+        for cabecalho, texto in zip(self.cabecalhos_medicoes, textos_cabecalho):
+            cabecalho.configure(text=texto)
         for row in self.rows:
             row["tempo"].configure(placeholder_text=f"{self.t('exposure')} ({self.abreviacao_exposicao})")
             row["altura"].configure(placeholder_text=f"{self.t('arc_height')} ({self.unidade_arco})")
@@ -889,7 +908,7 @@ class AlmenApp(ctk.CTk):
                 row["lamina_var"].set(self.t("no_deviation"))
 
     def add_row(self, t_val="", h_val="", lamina_nome=None):
-        row_idx = len(self.rows)
+        row_idx = len(self.rows) + 1
         entry_t = ctk.CTkEntry(self.scroll_table, placeholder_text=f"{self.t('exposure')} ({self.abreviacao_exposicao})", width=120)
         entry_t.grid(row=row_idx, column=0, padx=5, pady=4, sticky="ew")
         if t_val != "":
@@ -909,6 +928,7 @@ class AlmenApp(ctk.CTk):
         self.rows.append(
             {"tempo": entry_t, "altura": entry_h, "lamina_var": lamina_var, "menu_lamina": menu_lamina}
         )
+        self._atualizar_textos_unidade()
 
     def remove_row(self):
         if self.rows:
@@ -916,6 +936,7 @@ class AlmenApp(ctk.CTk):
             row["tempo"].destroy()
             row["altura"].destroy()
             row["menu_lamina"].destroy()
+            self._atualizar_textos_unidade()
 
     def _load_sample_data(self):
         curva_salva = self.banco_pn.obter_ultima_curva(incluir_origem=True)
@@ -972,7 +993,9 @@ class AlmenApp(ctk.CTk):
         self.tipo_lamina = curva["tipo_lamina"]
         self.tipo_exposicao = curva["tipo_exposicao"]
         codigo_curva = str(curva.get("codigo_curva", "")).strip().upper()
-        codigo_assinado = bool(re.fullmatch(r"[NAC][0-9A-Z]{4}", codigo_curva))
+        # Mantém leitura de códigos legados; o próximo salvamento usa seis
+        # caracteres e reserva o identificador na base local.
+        codigo_assinado = bool(re.fullmatch(r"[NAC](?:[0-9A-Z]{4}|[0-9A-Z]{5}|[0-9A-Z]{12})", codigo_curva))
         self._codigo_curva_atual = codigo_curva if codigo_assinado else None
         self._assinatura_curva_atual = None
         self._atualizar_textos_unidade()
@@ -1041,7 +1064,7 @@ class AlmenApp(ctk.CTk):
         self.calcular_e_plotar()
         return True
 
-    def _persistir_codigo_curva_atual(self):
+    def _persistir_codigo_curva_atual(self, forcar_novo=False):
         """Registra o primeiro identificador gerado na curva do PN/SN de origem."""
         origem = getattr(self, "_origem_curva", {})
         if origem.get("tipo") not in {"selected", "latest"}:
@@ -1051,7 +1074,9 @@ class AlmenApp(ctk.CTk):
         banco = getattr(self, "banco_pn", None)
         if codigo and pn and banco is not None:
             try:
-                banco.atualizar_codigo_curva(pn, sn, codigo)
+                codigo_reservado = banco.atualizar_codigo_curva(pn, sn, codigo, forcar_novo=forcar_novo)
+                if isinstance(codigo_reservado, str):
+                    self._codigo_curva_atual = codigo_reservado
             except (OSError, ValueError):
                 pass
 
@@ -1243,11 +1268,12 @@ class AlmenApp(ctk.CTk):
         painel_direito.grid(row=1, column=1, padx=(8, 24), pady=(0, 16), sticky="nsew")
         painel_direito.grid_columnconfigure(0, weight=1)
         painel_direito.grid_rowconfigure(3, weight=1)
-        ctk.CTkLabel(
+        rotulo_desvios = ctk.CTkLabel(
             painel_direito,
-            text=self.t("individual_deviations", unit=self.unidade_arco),
+            text=self.t("individual_deviations_count", unit=self.unidade_arco, count=0),
             font=ctk.CTkFont(size=15, weight="bold"),
-        ).grid(row=0, column=0, padx=16, pady=(16, 2), sticky="w")
+        )
+        rotulo_desvios.grid(row=0, column=0, padx=16, pady=(16, 2), sticky="w")
         ctk.CTkLabel(
             painel_direito,
             text=self.t("deviation_help"),
@@ -1270,11 +1296,21 @@ class AlmenApp(ctk.CTk):
 
         linhas_desvio = []
 
+        def atualizar_contagem_desvios():
+            rotulo_desvios.configure(
+                text=self.t(
+                    "individual_deviations_count",
+                    unit=self.unidade_arco,
+                    count=len(linhas_desvio),
+                )
+            )
+
         def reordenar_linhas_desvio():
             for indice, linha in enumerate(linhas_desvio, start=1):
                 for widget in linha["widgets"]:
                     widget.grid_configure(row=indice)
                 linha["indice"].configure(text=str(indice))
+            atualizar_contagem_desvios()
 
         def remover_linha_desvio(linha):
             for widget in linha["widgets"]:
@@ -1311,6 +1347,7 @@ class AlmenApp(ctk.CTk):
             valor_entry.grid(row=indice, column=2, padx=4, pady=3, sticky="ew")
             remover_button.grid(row=indice, column=3, padx=(4, 8), pady=3)
             linhas_desvio.append(linha)
+            atualizar_contagem_desvios()
 
         for nome, valor in self.desvios_laminas.items():
             adicionar_linha_desvio(nome, f"{valor:.6g}")
@@ -1455,11 +1492,15 @@ class AlmenApp(ctk.CTk):
                 self.lbl_status.configure(text=aviso_intensidade, text_color="#e74c3c")
             validacao = resultado["validacao"]
             if validacao["valida"]:
-                codigo_assinado = gerar_codigo_curva_saturacao(assinatura_atual)
-                if self._codigo_curva_atual != codigo_assinado:
-                    self._codigo_curva_atual = codigo_assinado
+                codigo_candidato = gerar_codigo_curva_saturacao(assinatura_atual)
+                assinatura_alterada = self._assinatura_curva_atual not in (None, assinatura_atual)
+                codigo_anterior = self._codigo_curva_atual
+                if codigo_anterior != codigo_candidato or assinatura_alterada:
+                    self._codigo_curva_atual = codigo_candidato
                     self._assinatura_curva_atual = assinatura_atual
-                    self._persistir_codigo_curva_atual()
+                    self._persistir_codigo_curva_atual(
+                        forcar_novo=assinatura_alterada and codigo_anterior == codigo_candidato
+                    )
                 texto_validacao = self.t("curve_valid")
                 cor_validacao = "#16803c"
             else:
@@ -1582,7 +1623,7 @@ class AlmenApp(ctk.CTk):
             self.fig.savefig(caminho, dpi=300, facecolor=self.fig.get_facecolor(), bbox_inches="tight")
             self._arquivo_impressao = caminho
             os.startfile(str(caminho), "print")
-            self.lbl_status.configure(text=self.t("chart_sent_to_printer"), text_color="#2ecc71")
+            self.lbl_status.configure(text=self.t("chart_sent_to_printer"), text_color="#1f6b45")
         except OSError as err:
             self.lbl_status.configure(text=self.t("print_error", message=err))
 

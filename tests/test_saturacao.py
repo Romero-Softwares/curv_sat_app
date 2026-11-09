@@ -147,8 +147,8 @@ class CalcularSaturacaoTests(unittest.TestCase):
 
         codigo = gerar_codigo_curva_saturacao(assinatura)
 
-        self.assertRegex(codigo, r"^N[0-9A-Z]{4}$")
-        self.assertLessEqual(len(codigo), 5)
+        self.assertRegex(codigo, r"^N[0-9A-Z]{5}$")
+        self.assertEqual(len(codigo), 6)
         self.assertEqual(codigo, gerar_codigo_curva_saturacao(assinatura))
         self.assertNotEqual(
             codigo,
@@ -170,9 +170,28 @@ class CalcularSaturacaoTests(unittest.TestCase):
             banco = BancoDadosPN(Path(diretorio) / "cadastros.db")
             banco.salvar({"Peça / PN": "PN-100", "SN da peça": "SN-7"}, curva)
 
-            codigo = "A12B3"
-            self.assertTrue(banco.atualizar_codigo_curva("PN-100", "SN-7", codigo))
+            codigo = banco.obter_curva("PN-100", "SN-7")["codigo_curva"]
+            self.assertEqual(banco.atualizar_codigo_curva("PN-100", "SN-7", "A12B34"), codigo)
             self.assertEqual(banco.obter_curva("PN-100", "SN-7")["codigo_curva"], codigo)
+
+    def test_reserva_compartilha_codigo_para_curvas_iguais(self):
+        curva = {"tipo_lamina": "A", "tempos": [1, 2, 3, 4], "alturas": [0.1, 0.2, 0.3, 0.4]}
+        with TemporaryDirectory() as diretorio:
+            banco = BancoDadosPN(Path(diretorio) / "cadastros.db")
+            banco.salvar({"Peça / PN": "PN-1", "SN da peça": ""}, {**curva, "codigo_curva": "A00000"})
+            banco.salvar({"Peça / PN": "PN-2", "SN da peça": ""}, {**curva, "codigo_curva": "A00000"})
+
+            primeiro = banco.obter_curva("PN-1")["codigo_curva"]
+            segundo = banco.obter_curva("PN-2")["codigo_curva"]
+            self.assertEqual(primeiro, "A00000")
+            self.assertEqual(primeiro, segundo)
+
+            banco.salvar(
+                {"Peça / PN": "PN-3", "SN da peça": ""},
+                {**curva, "alturas": [0.1, 0.2, 0.3, 0.41], "codigo_curva": "A00000"},
+            )
+            self.assertNotEqual(primeiro, banco.obter_curva("PN-3")["codigo_curva"])
+
 
     def test_indicador_informa_a_origem_dos_dados_da_curva(self):
         app = SimpleNamespace(
@@ -655,6 +674,18 @@ class CalcularSaturacaoTests(unittest.TestCase):
             self.assertEqual(banco.obter_curva("PN-100", "SN-B"), curva_b)
             self.assertIsNone(banco.obter_curva("PN-100", "SN-INEXISTENTE"))
 
+    def test_banco_busca_por_codigo_da_curva_e_faixa_de_intensidade(self):
+        with TemporaryDirectory() as diretorio:
+            banco = BancoDadosPN(Path(diretorio) / "cadastros.db")
+            banco.salvar(
+                {"Peça / PN": "PN-CURVA", "SN da peça": "SN-42", "Intensidade de peening": "0,014 - 0,018", "Unidade de Intensidade de peening": "A"},
+                {"codigo_curva": "A48320", "tempos": [1, 2, 3, 4], "alturas": [0.1, 0.15, 0.19, 0.21]},
+            )
+            banco.salvar({"Peça / PN": "PN-OUTRO", "Intensidade de peening": "0,020 - 0,024"})
+
+            self.assertEqual(banco.buscar_registros("a48320"), [("PN-CURVA", "SN-42")])
+            self.assertEqual(banco.buscar_registros("0.014-0.018A"), [("PN-CURVA", "SN-42")])
+
     def test_emissao_de_relatorio_sequencia_por_prefixo_ano_e_preserva_reimpressao(self):
         with TemporaryDirectory() as diretorio:
             banco = BancoDadosPN(Path(diretorio) / "cadastros.db")
@@ -796,6 +827,23 @@ class ImpressaoHtmlNativaTests(unittest.TestCase):
             self.assertEqual(destino.suffix, ".pdf")
             self.assertTrue(destino.is_file())
             self.assertEqual(destino.with_suffix(".html").read_text(encoding="utf-8"), conteudo_html)
+
+    def test_conversor_gera_pdf_interno_sem_navegador(self):
+        conteudo_html = "<html><body><h1>Relatório</h1><p>Conteúdo da curva.</p></body></html>"
+        with TemporaryDirectory() as diretorio, patch(
+            "curvsat.reporting.reports._localizar_navegador_para_pdf", return_value=None
+        ):
+            destino = converter_relatorio_html_para_pdf(conteudo_html, Path(diretorio) / "relatorio")
+            self.assertEqual(destino.read_bytes()[:5], b"%PDF-")
+
+    def test_conversor_usa_pdf_interno_quando_navegador_antigo_falha(self):
+        conteudo_html = "<html><body><h1>Relatório</h1><p>Conteúdo da curva.</p></body></html>"
+        processo_falho = SimpleNamespace(returncode=1, stdout="", stderr="argumento não suportado")
+        with TemporaryDirectory() as diretorio, \
+                patch("curvsat.reporting.reports._localizar_navegador_para_pdf", return_value=Path("navegador-antigo.exe")), \
+                patch("curvsat.reporting.reports.subprocess.run", return_value=processo_falho):
+            destino = converter_relatorio_html_para_pdf(conteudo_html, Path(diretorio) / "relatorio")
+            self.assertEqual(destino.read_bytes()[:5], b"%PDF-")
 
 
 if __name__ == "__main__":

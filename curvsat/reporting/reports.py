@@ -23,6 +23,11 @@ from pathlib import Path
 from tkinter import filedialog, messagebox
 
 import customtkinter as ctk
+from reportlab.lib import colors
+from reportlab.lib.pagesizes import A4
+from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+from reportlab.lib.units import cm
+from reportlab.platypus import Image, PageBreak, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
 from curvsat.core.paths import user_data_file
 from curvsat.content.translations import html_language, load_language, tr
@@ -269,9 +274,8 @@ class _ExtratorHtmlRelatorio(HTMLParser):
             self._texto.append(data)
 
 
-def _gerar_relatorio_html_em_pdf_reportlab_legacy(conteudo_html: str, destino: str | Path) -> None:
-    """Gera um PDF a partir da versão HTML imutável do relatório."""
-    raise RuntimeError("A conversão alternativa por ReportLab foi removida para preservar a impressão do navegador.")
+def _gerar_relatorio_html_em_pdf_reportlab(conteudo_html: str, destino: str | Path) -> None:
+    """Gera um PDF independente de navegador a partir do relatório arquivado."""
 
     extrator = _ExtratorHtmlRelatorio()
     extrator.feed(conteudo_html)
@@ -416,17 +420,20 @@ def _localizar_navegador_para_pdf() -> Path | None:
 
 
 def converter_relatorio_html_para_pdf(conteudo_html: str, destino: str | Path) -> Path:
-    """Converte o HTML arquivado em PDF antes de qualquer impressão direta."""
-    navegador = _localizar_navegador_para_pdf()
-    if navegador is None:
-        raise OSError("não foi encontrado um navegador compatível para gerar o PDF")
-
+    """Converte o HTML arquivado em PDF, mesmo sem navegador instalado."""
     arquivo_pdf = Path(destino).expanduser().with_suffix(".pdf")
     arquivo_html = arquivo_pdf.with_suffix(".html")
     arquivo_pdf.parent.mkdir(parents=True, exist_ok=True)
     arquivo_html.write_text(conteudo_html, encoding="utf-8")
     if arquivo_pdf.exists():
         arquivo_pdf.unlink()
+
+    navegador = _localizar_navegador_para_pdf()
+    if navegador is None:
+        _gerar_relatorio_html_em_pdf_reportlab(conteudo_html, arquivo_pdf)
+        if arquivo_pdf.is_file() and arquivo_pdf.stat().st_size >= 5 and arquivo_pdf.read_bytes()[:5] == b"%PDF-":
+            return arquivo_pdf
+        raise OSError("não foi possível gerar o PDF sem navegador")
 
     with tempfile.TemporaryDirectory(prefix="curvsat-pdf-") as perfil_temporario:
         comando = [
@@ -453,11 +460,24 @@ def converter_relatorio_html_para_pdf(conteudo_html: str, destino: str | Path) -
         except subprocess.TimeoutExpired as erro:
             raise OSError("a conversão do relatório em PDF excedeu o tempo limite") from erro
 
-    if processo.returncode != 0 or not arquivo_pdf.is_file() or arquivo_pdf.stat().st_size < 5:
-        detalhe = (processo.stderr or processo.stdout or "falha desconhecida").strip()
-        raise OSError(f"não foi possível converter o relatório em PDF: {detalhe}")
-    if arquivo_pdf.read_bytes()[:5] != b"%PDF-":
-        raise OSError("a conversão não produziu um arquivo PDF válido")
+    if processo.returncode == 0 and arquivo_pdf.is_file() and arquivo_pdf.stat().st_size >= 5:
+        if arquivo_pdf.read_bytes()[:5] == b"%PDF-":
+            return arquivo_pdf
+
+    # Versões antigas do Chrome/Edge podem existir no Windows 8.1, mas não
+    # aceitam os argumentos atuais de impressão sem interface. Nesse caso,
+    # usa-se a mesma conversão interna aplicada quando não há navegador.
+    if arquivo_pdf.exists():
+        arquivo_pdf.unlink()
+    try:
+        _gerar_relatorio_html_em_pdf_reportlab(conteudo_html, arquivo_pdf)
+    except Exception as erro_fallback:
+        detalhe_navegador = (processo.stderr or processo.stdout or "falha desconhecida").strip()
+        raise OSError(
+            f"não foi possível converter o relatório em PDF: {detalhe_navegador}"
+        ) from erro_fallback
+    if not arquivo_pdf.is_file() or arquivo_pdf.stat().st_size < 5 or arquivo_pdf.read_bytes()[:5] != b"%PDF-":
+        raise OSError("a conversão alternativa não produziu um arquivo PDF válido")
     return arquivo_pdf
 
 
@@ -831,6 +851,156 @@ class BancoDadosPN:
                 )
                 """
             )
+            conexao.execute(
+                """
+                CREATE TABLE IF NOT EXISTS codigos_curva_reservados (
+                    codigo TEXT PRIMARY KEY,
+                    pn TEXT NOT NULL COLLATE NOCASE,
+                    serial_number TEXT NOT NULL COLLATE NOCASE,
+                    reservado_em TEXT NOT NULL,
+                    assinatura TEXT
+                )
+                """
+            )
+            colunas_codigos = conexao.execute("PRAGMA table_info(codigos_curva_reservados)").fetchall()
+            if "assinatura" not in {coluna["name"] for coluna in colunas_codigos}:
+                conexao.execute("ALTER TABLE codigos_curva_reservados ADD COLUMN assinatura TEXT")
+            conexao.execute(
+                "CREATE UNIQUE INDEX IF NOT EXISTS idx_codigos_curva_assinatura "
+                "ON codigos_curva_reservados(assinatura) WHERE assinatura IS NOT NULL"
+            )
+            self._migrar_codigos_curvas(conexao)
+
+    _ALFABETO_CODIGO_CURVA = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+    _CODIGO_CURVA_COMPACTO = re.compile(r"[NAC][0-9A-Z]{5}")
+
+    @classmethod
+    def _dados_canonicos_curva(cls, curva):
+        """Extrai somente os valores tecnicos que definem uma curva."""
+        curva = curva if isinstance(curva, dict) else {}
+
+        def numeros(valores):
+            if not isinstance(valores, (list, tuple)):
+                return []
+            try:
+                return [float(valor).hex() for valor in valores]
+            except (TypeError, ValueError):
+                return []
+
+        tipo = str(curva.get("tipo_lamina", "A")).strip().upper()
+        tipo = tipo if tipo in {"N", "A", "C"} else "A"
+        tempos = numeros(curva.get("tempos"))
+        desvios = numeros(curva.get("desvios"))
+        if len(desvios) != len(tempos):
+            laminas = curva.get("laminas")
+            desvios_laminas = curva.get("desvios_laminas")
+            laminas = laminas if isinstance(laminas, (list, tuple)) else []
+            desvios_laminas = desvios_laminas if isinstance(desvios_laminas, dict) else {}
+            desvios = []
+            for indice in range(len(tempos)):
+                lamina = laminas[indice] if indice < len(laminas) else None
+                try:
+                    desvios.append(float(desvios_laminas.get(lamina, 0.0)).hex())
+                except (TypeError, ValueError):
+                    desvios.append(float(0.0).hex())
+        return {
+            "alturas": numeros(curva.get("alturas")),
+            "desvios": desvios,
+            "tipo_exposicao": str(curva.get("tipo_exposicao", "")).strip().lower(),
+            "tempos": tempos,
+            "tipo_lamina": tipo,
+            "unidade_arco": str(curva.get("unidade_arco", curva.get("unidade_flecha", ""))).strip().lower(),
+        }
+
+    @classmethod
+    def _assinatura_curva_reservada(cls, curva):
+        conteudo = json.dumps(
+            cls._dados_canonicos_curva(curva), ensure_ascii=True, sort_keys=True, separators=(",", ":")
+        )
+        return hashlib.sha256(conteudo.encode("utf-8")).hexdigest()
+
+    @classmethod
+    def _codigo_curva_compacto(cls, curva):
+        """Gera o candidato inicial de seis caracteres para uma curva."""
+        dados_canonicos = cls._dados_canonicos_curva(curva)
+        tipo = dados_canonicos["tipo_lamina"]
+        conteudo = json.dumps(dados_canonicos, ensure_ascii=True, sort_keys=True, separators=(",", ":"))
+        valor = int(hashlib.sha256(conteudo.encode("utf-8")).hexdigest(), 16) % (36 ** 5)
+        caracteres = []
+        for _ in range(5):
+            valor, resto = divmod(valor, 36)
+            caracteres.append(cls._ALFABETO_CODIGO_CURVA[resto])
+        return tipo + "".join(reversed(caracteres))
+
+    @classmethod
+    def _proximo_codigo_curva(cls, codigo):
+        """Avança no espaço base-36 sem aumentar o tamanho do código."""
+        valor = 0
+        for caractere in codigo[1:]:
+            valor = valor * 36 + cls._ALFABETO_CODIGO_CURVA.index(caractere)
+        valor = (valor + 1) % (36 ** 5)
+        caracteres = []
+        for _ in range(5):
+            valor, resto = divmod(valor, 36)
+            caracteres.append(cls._ALFABETO_CODIGO_CURVA[resto])
+        return codigo[0] + "".join(reversed(caracteres))
+
+    def _reservar_codigo_curva(self, conexao, pn, sn, curva, codigo=None, evitar_codigo_atual=False):
+        """Reserva um dos 60 milhões de códigos de cada tipo, sem reutilizá-lo."""
+        codigo = str(codigo or "").strip().upper()
+        assinatura = self._assinatura_curva_reservada(curva)
+        reserva_assinatura = conexao.execute(
+            "SELECT codigo FROM codigos_curva_reservados WHERE assinatura = ?", (assinatura,)
+        ).fetchone()
+        if reserva_assinatura is not None:
+            return reserva_assinatura["codigo"]
+        if not self._CODIGO_CURVA_COMPACTO.fullmatch(codigo):
+            codigo = self._codigo_curva_compacto(curva)
+        for _ in range(36 ** 5):
+            reserva = conexao.execute(
+                "SELECT pn, serial_number, assinatura FROM codigos_curva_reservados WHERE codigo = ?", (codigo,)
+            ).fetchone()
+            if reserva is None:
+                conexao.execute(
+                    "INSERT INTO codigos_curva_reservados (codigo, pn, serial_number, reservado_em, assinatura) VALUES (?, ?, ?, ?, ?)",
+                    (codigo, pn, sn, _timestamp_sincronizacao(), assinatura),
+                )
+                return codigo
+            if (
+                reserva["assinatura"] is None
+                and not evitar_codigo_atual
+                and reserva["pn"].casefold() == pn.casefold()
+                and reserva["serial_number"].casefold() == sn.casefold()
+            ):
+                conexao.execute(
+                    "UPDATE codigos_curva_reservados SET assinatura = ? WHERE codigo = ?",
+                    (assinatura, codigo),
+                )
+                return codigo
+            codigo = self._proximo_codigo_curva(codigo)
+        raise ValueError("Limite de códigos compactos atingido para este tipo de lâmina.")
+
+    def _migrar_codigos_curvas(self, conexao):
+        """Converte códigos antigos e corrige duplicidades ao abrir a base."""
+        registros = conexao.execute(
+            "SELECT pn, serial_number, curva_json FROM cadastros_pn WHERE curva_json IS NOT NULL AND curva_json <> ''"
+        ).fetchall()
+        for registro in registros:
+            try:
+                curva = json.loads(registro["curva_json"])
+            except (TypeError, json.JSONDecodeError):
+                continue
+            if not isinstance(curva, dict):
+                continue
+            codigo = self._reservar_codigo_curva(
+                conexao, registro["pn"], registro["serial_number"], curva, curva.get("codigo_curva")
+            )
+            if curva.get("codigo_curva") != codigo:
+                curva["codigo_curva"] = codigo
+                conexao.execute(
+                    "UPDATE cadastros_pn SET curva_json = ?, atualizado_em = ? WHERE pn = ? AND serial_number = ?",
+                    (json.dumps(curva, ensure_ascii=False), _timestamp_sincronizacao(), registro["pn"], registro["serial_number"]),
+                )
 
     @staticmethod
     def _normalizar_pn(valor):
@@ -868,6 +1038,10 @@ class BancoDadosPN:
         dados_normalizados["Peça / PN"] = pn
         dados_normalizados["SN da peça"] = sn
         with self._conectar() as conexao:
+            if isinstance(curva, dict):
+                curva["codigo_curva"] = self._reservar_codigo_curva(
+                    conexao, pn, sn, curva, curva.get("codigo_curva")
+                )
             conexao.execute(
                 """
                 INSERT INTO cadastros_pn (pn, serial_number, dados_json, curva_json, atualizado_em)
@@ -929,14 +1103,14 @@ class BancoDadosPN:
             return None
         return curva if isinstance(curva, dict) else None
 
-    def atualizar_codigo_curva(self, pn, sn, codigo_curva):
+    def atualizar_codigo_curva(self, pn, sn, codigo_curva, forcar_novo=False):
         """Grava o identificador gerado na própria curva já arquivada."""
         pn = self._normalizar_pn(pn)
         sn = self._normalizar_sn(sn)
         codigo_curva = str(codigo_curva or "").strip().upper()
         if not pn:
             raise ValueError(tr("pn_required_save"))
-        if not re.fullmatch(r"[NAC][0-9A-Z]{4}", codigo_curva):
+        if not self._CODIGO_CURVA_COMPACTO.fullmatch(codigo_curva):
             raise ValueError("Identificador de curva inválido.")
 
         with self._conectar() as conexao:
@@ -951,14 +1125,17 @@ class BancoDadosPN:
                 return False
             if not isinstance(curva, dict):
                 return False
+            codigo_curva = self._reservar_codigo_curva(
+                conexao, pn, sn, curva, codigo_curva, evitar_codigo_atual=forcar_novo
+            )
             if curva.get("codigo_curva") == codigo_curva:
-                return True
+                return codigo_curva
             curva["codigo_curva"] = codigo_curva
             conexao.execute(
                 "UPDATE cadastros_pn SET curva_json = ?, atualizado_em = ? WHERE pn = ? AND serial_number = ?",
                 (json.dumps(curva, ensure_ascii=False), _timestamp_sincronizacao(), pn, sn),
             )
-        return True
+        return codigo_curva
 
     def obter_ultima_curva(self, incluir_origem=False):
         """Retorna a curva associada ao PN salvo mais recentemente, se houver."""
@@ -989,16 +1166,32 @@ class BancoDadosPN:
         with self._conectar() as conexao:
             if termo:
                 termo_escapado = termo.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+                termo_intensidade = termo.replace(",", ".").replace(" ", "")
+                termo_intensidade_escapado = (
+                    termo_intensidade.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+                )
                 linhas = conexao.execute(
                     """
                     SELECT pn, serial_number FROM cadastros_pn
                     WHERE pn LIKE ? ESCAPE '\\'
                        OR serial_number LIKE ? ESCAPE '\\'
                        OR json_extract(dados_json, '$.Router') LIKE ? ESCAPE '\\'
+                       OR json_extract(curva_json, '$.codigo_curva') LIKE ? ESCAPE '\\'
+                       OR (
+                            REPLACE(REPLACE(COALESCE(json_extract(dados_json, '$."Intensidade de peening"'), ''), ',', '.'), ' ', '')
+                            || COALESCE(json_extract(dados_json, '$."Unidade de Intensidade de peening"'), '')
+                       ) LIKE ? ESCAPE '\\'
                     ORDER BY pn COLLATE NOCASE, serial_number COLLATE NOCASE
                     LIMIT ?
                     """,
-                    (f"%{termo_escapado}%", f"%{termo_escapado}%", f"%{termo_escapado}%", limite),
+                    (
+                        f"%{termo_escapado}%",
+                        f"%{termo_escapado}%",
+                        f"%{termo_escapado}%",
+                        f"%{termo_escapado}%",
+                        f"%{termo_intensidade_escapado}%",
+                        limite,
+                    ),
                 ).fetchall()
             else:
                 linhas = conexao.execute(
@@ -1157,6 +1350,17 @@ class BancoDadosPN:
                 dados, curva = record.get("data"), record.get("curve")
                 if not isinstance(dados, dict) or (curva is not None and not isinstance(curva, dict)):
                     continue
+                if isinstance(curva, dict):
+                    curva = dict(curva)
+                    codigo_recebido = curva.get("codigo_curva")
+                    codigo_reservado = self._reservar_codigo_curva(
+                        conexao, pn, sn, curva, codigo_recebido
+                    )
+                    curva["codigo_curva"] = codigo_reservado
+                    # Uma colisão vinda de outra instalação é corrigida antes
+                    # de entrar na base e volta ao servidor como nova revisão.
+                    if codigo_reservado != codigo_recebido:
+                        updated_at = _timestamp_sincronizacao()
                 serialized_data = json.dumps(dados, ensure_ascii=False)
                 serialized_curve = json.dumps(curva, ensure_ascii=False) if curva is not None else None
                 try:
@@ -1681,7 +1885,7 @@ def abrir_relatorio(app):
     busca_entry.grid(row=1, column=1, padx=(0, 8), pady=(0, 12), sticky="ew")
     resultado_busca = ctk.CTkComboBox(busca_frame, values=[tr("none_found")], state="readonly")
     resultado_busca.grid(row=1, column=3, padx=(0, 14), pady=(0, 12), sticky="ew")
-    rotulo_resultados = ctk.CTkLabel(busca_frame, text=tr("results"))
+    rotulo_resultados = ctk.CTkLabel(busca_frame, text=tr("results_count", count=0))
     rotulo_resultados.grid(row=1, column=2, padx=(0, 7), pady=(0, 12), sticky="w")
 
     formularios_frame = ctk.CTkScrollableFrame(janela, fg_color="transparent", corner_radius=0)
@@ -1803,6 +2007,7 @@ def abrir_relatorio(app):
         opcoes_busca.clear()
         for pn, sn in registros:
             opcoes_busca[rotulo_resultado(pn, sn)] = (pn, sn)
+        rotulo_resultados.configure(text=tr("results_count", count=len(registros)))
         opcoes = list(opcoes_busca) or [tr("none_found")]
         resultado_busca.configure(values=opcoes)
         resultado_busca.set(opcoes[0])
@@ -1822,7 +2027,7 @@ def abrir_relatorio(app):
         busca_entry.delete(0, "end")
         busca_entry.insert(0, dados["Peça / PN"])
         app.dados_relatorio = dados
-        app.lbl_status.configure(text=tr("pn_loaded", pn=dados["Peça / PN"]), text_color="#2ecc71")
+        app.lbl_status.configure(text=tr("pn_loaded", pn=dados["Peça / PN"]), text_color="#1f6b45")
 
     def salvar_atualizacao():
         try:
@@ -1836,6 +2041,8 @@ def abrir_relatorio(app):
                     }
                 )
             dados = app.banco_pn.salvar(dados, curva)
+            if curva is not None and isinstance(curva.get("codigo_curva"), str):
+                app._codigo_curva_atual = curva["codigo_curva"]
         except (OSError, sqlite3.Error, ValueError) as err:
             app.lbl_status.configure(text=tr("save_pn_error", message=err), text_color="#e74c3c")
             return None
@@ -1844,7 +2051,7 @@ def abrir_relatorio(app):
         busca_entry.insert(0, dados["Peça / PN"])
         atualizar_resultados(dados["Peça / PN"])
         resultado_busca.set(rotulo_resultado(dados["Peça / PN"], dados["SN da peça"]))
-        app.lbl_status.configure(text=tr("pn_saved", pn=dados["Peça / PN"]), text_color="#2ecc71")
+        app.lbl_status.configure(text=tr("pn_saved", pn=dados["Peça / PN"]), text_color="#1f6b45")
         return dados
 
     def excluir_pn():
@@ -1865,7 +2072,7 @@ def abrir_relatorio(app):
             app.dados_relatorio = criar_dados_relatorio()
             busca_entry.delete(0, "end")
             atualizar_resultados()
-            app.lbl_status.configure(text=tr("pn_removed", pn=pn), text_color="#2ecc71")
+            app.lbl_status.configure(text=tr("pn_removed", pn=pn), text_color="#1f6b45")
         else:
             app.lbl_status.configure(text=tr("pn_not_found", pn=pn), text_color="#e74c3c")
 
@@ -1977,7 +2184,7 @@ def abrir_relatorio(app):
             )
             converter_relatorio_html_para_pdf(emissao["conteudo_html"], caminho)
             app.lbl_status.configure(
-                text=tr("report_generated_numbered", number=emissao["numero"]), text_color="#2ecc71"
+                text=tr("report_generated_numbered", number=emissao["numero"]), text_color="#1f6b45"
             )
             janela.destroy()
         except OSError as err:
@@ -2096,8 +2303,12 @@ def abrir_historico_relatorios(app):
     busca_frame = ctk.CTkFrame(janela, fg_color="transparent")
     busca_frame.grid(row=3, column=0, padx=24, pady=(4, 8), sticky="ew")
     busca_frame.grid_columnconfigure(0, weight=1)
+    busca_frame.grid_columnconfigure(1, weight=0)
+    busca_frame.grid_columnconfigure(2, weight=0)
     busca_entry = ctk.CTkEntry(busca_frame, placeholder_text=tr("report_search_placeholder"))
     busca_entry.grid(row=0, column=0, padx=(0, 8), sticky="ew")
+    rotulo_quantidade = ctk.CTkLabel(busca_frame, text=tr("displayed_count", count=0))
+    rotulo_quantidade.grid(row=0, column=1, padx=(0, 12), sticky="e")
     lista = ctk.CTkScrollableFrame(janela, corner_radius=10)
     lista.grid(row=4, column=0, padx=24, pady=(0, 20), sticky="nsew")
     lista.grid_columnconfigure(0, weight=1)
@@ -2112,7 +2323,7 @@ def abrir_historico_relatorios(app):
                 relatorio["conteudo_html"], user_data_file(f"reimpressao_{relatorio_id}.html")
             )
             app.lbl_status.configure(
-                text=tr("report_reprint_ready", number=relatorio["numero"]), text_color="#2ecc71"
+                text=tr("report_reprint_ready", number=relatorio["numero"]), text_color="#1f6b45"
             )
             messagebox.showinfo(
                 tr("reprint_report"),
@@ -2135,7 +2346,7 @@ def abrir_historico_relatorios(app):
                 relatorio["conteudo_html"], user_data_file(f"imprimir_{relatorio_id}.html")
             )
             app.lbl_status.configure(
-                text=tr("print_pdf_ready", number=relatorio["numero"]), text_color="#2ecc71"
+                text=tr("print_pdf_ready", number=relatorio["numero"]), text_color="#1f6b45"
             )
             messagebox.showinfo(
                 tr("print_pdf"),
@@ -2166,7 +2377,7 @@ def abrir_historico_relatorios(app):
         try:
             arquivo_pdf = converter_relatorio_html_para_pdf(relatorio["conteudo_html"], destino)
             app.lbl_status.configure(
-                text=tr("pdf_export_ready", number=relatorio["numero"]), text_color="#2ecc71"
+                text=tr("pdf_export_ready", number=relatorio["numero"]), text_color="#1f6b45"
             )
             messagebox.showinfo(
                 tr("export_pdf"),
@@ -2188,7 +2399,7 @@ def abrir_historico_relatorios(app):
             app.lbl_status.configure(text=tr("report_not_found"), text_color="#e74c3c")
             atualizar()
             return
-        app.lbl_status.configure(text=tr("report_deleted", number=relatorio["numero"]), text_color="#2ecc71")
+        app.lbl_status.configure(text=tr("report_deleted", number=relatorio["numero"]), text_color="#1f6b45")
         atualizar()
 
         # Envia a marca de exclusão logo após a confirmação, sem bloquear a
@@ -2215,6 +2426,7 @@ def abrir_historico_relatorios(app):
             widget.destroy()
         ano, mes = filtros_ativos()
         relatorios = app.banco_pn.buscar_relatorios_emitidos(busca_entry.get(), ano=ano, mes=mes)
+        rotulo_quantidade.configure(text=tr("displayed_count", count=len(relatorios)))
         if not relatorios:
             ctk.CTkLabel(lista, text=tr("no_generated_reports")).grid(row=0, column=0, padx=14, pady=18, sticky="w")
             return
@@ -2262,7 +2474,7 @@ def abrir_historico_relatorios(app):
             add_tooltip(delete_button, tr("tooltip_delete_report"))
 
     search_button = ctk.CTkButton(busca_frame, text=tr("search"), width=105, command=atualizar)
-    search_button.grid(row=0, column=1)
+    search_button.grid(row=0, column=2)
     add_tooltip(search_button, tr("tooltip_search_reports"))
     busca_entry.bind("<Return>", lambda _evento: atualizar())
     busca_entry.bind("<KeyRelease>", lambda _evento: atualizar())
