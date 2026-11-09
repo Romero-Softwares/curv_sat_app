@@ -1,17 +1,17 @@
 {
   "app": "CurvSat",
-  "version": "1.0.6",
-  "release_notes": "Inclui identificador persistente da curva de saturacao e correcoes de traducao.",
-  "download_url": "https://merotec.online/download/ASCC-System-1.0.6.exe",
+  "version": "1.0.7",
+  "release_notes": "Inclui analise granulometrica por peneiras, historico e relatorios traduzidos, melhorias na identificacao e busca de curvas, exportacao PDF interna e ajustes de interface.",
+  "download_url": "https://merotec.online/download/ASCC-System-1.0.7.exe",
   "artifact": {
-    "name": "ASCC-System-1.0.6.exe",
-    "sha256": "621e5f0457c90aea7c90dc85221997f40f936beda9fca1fade5500c08ec1f80e",
-    "size": 78210441
+    "name": "ASCC-System-1.0.7.exe",
+    "sha256": "beee8685c2dde1e6b0b3f76c038c60d7c54303ec30c049ad8cc8f30dddaf4fac",
+    "size": 79945268
   },
   "local_signature": {
     "format": "merotec.release-manifest.v1",
     "algorithm": "Ed25519",
     "key_id": "ed25519:e587daae6f8fd5e563622814",
-    "value": "IHhjDJHOBcXrc4_anV9eaf2uULVo8YDsoPl6-QkpHw1whcxQRUb7xNLkHTbz6L5Bu4h1WHtE5le3SLyBUtRwBA"
+    "value": "ciGZXgQ1HSvaVGg7K20WLW9XmleUTh3US4-KsWk8Dw7d9f9yyNpgROaBIUNVUg6_58xbMILDrKBaHAfG6VkHCw"
   }
 }
