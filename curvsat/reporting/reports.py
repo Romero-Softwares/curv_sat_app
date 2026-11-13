@@ -14,6 +14,7 @@ import re
 import sqlite3
 import threading
 import tempfile
+import uuid
 import webbrowser
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
@@ -505,6 +506,12 @@ CAMPO_TEXTO_RELATORIO = (
     "Router", "Peça / PN", "SN da peça", "Referencia-CMM", "Reparo", "Equipamento", "Esfera",
 )
 CAMPOS_DADOS_EQUIPAMENTO_RELATORIO = ("Equipamento", "Bico", "Injetor", "Distância", "Ângulo", "Pressão")
+CAMPOS_DADOS_PROCESSO_CURVA = (
+    *CAMPOS_DADOS_EQUIPAMENTO_RELATORIO,
+    "Esfera",
+    "Dureza",
+    "Intensidade de peening",
+)
 _CAMPO_CHAVES = {
     "Peça / PN": "piece_pn", "SN da peça": "part_serial_number", "Referencia-CMM": "reference_cmm", "Reparo": "repair", "Equipamento": "equipment",
     "Intensidade de peening": "required_peening_intensity", "Observações": "notes", "Esfera": "shot", "Dureza": "hardness",
@@ -618,6 +625,25 @@ def avaliar_intensidade_requerida(intensidade_calculada, intensidade_requerida, 
         "limite_inferior": limite_inferior,
         "limite_superior": limite_superior,
     }
+
+
+def criar_dados_processo_curva(dados=None):
+    """Normaliza somente os dados de processo que acompanham uma curva avulsa.
+
+    Identificação da peça e observações pertencem ao cadastro por PN e não são
+    copiadas para a biblioteca de curvas. Isso permite reutilizar a curva sem
+    transportar dados de uma peça anterior.
+    """
+    padrao = criar_dados_relatorio()
+    origem = dados if isinstance(dados, dict) else {}
+    normalizados = {}
+    for campo in CAMPOS_DADOS_PROCESSO_CURVA:
+        normalizados[campo] = origem.get(campo, padrao[campo])
+        unidade = f"Unidade de {campo}"
+        if unidade in padrao:
+            valor_unidade = origem.get(unidade, padrao[unidade])
+            normalizados[unidade] = valor_unidade if valor_unidade in CAMPO_UNIDADE_RELATORIO[campo] else padrao[unidade]
+    return normalizados
 
 
 def _converter_unidade_arco(valor, unidade_origem, unidade_destino):
@@ -869,6 +895,21 @@ class BancoDadosPN:
                 "CREATE UNIQUE INDEX IF NOT EXISTS idx_codigos_curva_assinatura "
                 "ON codigos_curva_reservados(assinatura) WHERE assinatura IS NOT NULL"
             )
+            conexao.execute(
+                """
+                CREATE TABLE IF NOT EXISTS curvas_avulsas (
+                    id TEXT PRIMARY KEY,
+                    codigo TEXT NOT NULL UNIQUE COLLATE NOCASE,
+                    curva_json TEXT NOT NULL,
+                    criado_em TEXT NOT NULL,
+                    atualizado_em TEXT NOT NULL
+                )
+                """
+            )
+            conexao.execute(
+                "CREATE INDEX IF NOT EXISTS idx_curvas_avulsas_atualizado "
+                "ON curvas_avulsas(atualizado_em DESC)"
+            )
             self._migrar_codigos_curvas(conexao)
 
     _ALFABETO_CODIGO_CURVA = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"
@@ -1102,6 +1143,118 @@ class BancoDadosPN:
         except (TypeError, json.JSONDecodeError):
             return None
         return curva if isinstance(curva, dict) else None
+
+    @staticmethod
+    def _curva_avulsa_da_linha(linha):
+        try:
+            curva = json.loads(linha["curva_json"])
+        except (TypeError, json.JSONDecodeError):
+            return None
+        if not isinstance(curva, dict):
+            return None
+        curva["_id"] = linha["id"]
+        curva["_criado_em"] = linha["criado_em"]
+        curva["_atualizado_em"] = linha["atualizado_em"]
+        return curva
+
+    def salvar_curva_avulsa(self, curva, curva_id=None):
+        """Salva uma curva na biblioteca sem criar ou alterar cadastro de PN."""
+        if not isinstance(curva, dict):
+            raise ValueError(tr("standalone_curve_invalid"))
+        curva = {chave: valor for chave, valor in curva.items() if not str(chave).startswith("_")}
+        if not self._dados_canonicos_curva(curva)["tempos"]:
+            raise ValueError(tr("standalone_curve_invalid"))
+
+        curva_id = str(curva_id or uuid.uuid4()).strip()
+        agora = _timestamp_sincronizacao()
+        with self._conectar() as conexao:
+            curva["codigo_curva"] = self._reservar_codigo_curva(
+                conexao,
+                "@CURVA_AVULSA",
+                curva_id,
+                curva,
+                curva.get("codigo_curva"),
+            )
+            existente_codigo = conexao.execute(
+                "SELECT id, criado_em FROM curvas_avulsas WHERE codigo = ?",
+                (curva["codigo_curva"],),
+            ).fetchone()
+            existente_id = conexao.execute(
+                "SELECT criado_em FROM curvas_avulsas WHERE id = ?", (curva_id,)
+            ).fetchone()
+            if existente_codigo is not None and existente_codigo["id"] != curva_id:
+                conexao.execute("DELETE FROM curvas_avulsas WHERE id = ?", (curva_id,))
+                curva_id = existente_codigo["id"]
+                criado_em = existente_codigo["criado_em"]
+            else:
+                criado_em = existente_id["criado_em"] if existente_id is not None else agora
+            conexao.execute(
+                """
+                INSERT INTO curvas_avulsas (id, codigo, curva_json, criado_em, atualizado_em)
+                VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET
+                    codigo = excluded.codigo,
+                    curva_json = excluded.curva_json,
+                    atualizado_em = excluded.atualizado_em
+                """,
+                (
+                    curva_id,
+                    curva["codigo_curva"],
+                    json.dumps(curva, ensure_ascii=False),
+                    criado_em,
+                    agora,
+                ),
+            )
+        return self.obter_curva_avulsa(curva_id)
+
+    def obter_curva_avulsa(self, curva_id):
+        curva_id = str(curva_id or "").strip()
+        if not curva_id:
+            return None
+        with self._conectar() as conexao:
+            linha = conexao.execute(
+                "SELECT id, curva_json, criado_em, atualizado_em FROM curvas_avulsas WHERE id = ?",
+                (curva_id,),
+            ).fetchone()
+        return self._curva_avulsa_da_linha(linha) if linha is not None else None
+
+    def buscar_curvas_avulsas(self, termo="", limite=80):
+        """Lista curvas sem vínculo por código, tipo, unidade ou conteúdo técnico."""
+        termo = str(termo or "").strip()
+        with self._conectar() as conexao:
+            if termo:
+                escapado = termo.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+                linhas = conexao.execute(
+                    """
+                    SELECT id, curva_json, criado_em, atualizado_em
+                    FROM curvas_avulsas
+                    WHERE codigo LIKE ? ESCAPE '\\'
+                       OR curva_json LIKE ? ESCAPE '\\'
+                    ORDER BY atualizado_em DESC
+                    LIMIT ?
+                    """,
+                    (f"%{escapado}%", f"%{escapado}%", limite),
+                ).fetchall()
+            else:
+                linhas = conexao.execute(
+                    """
+                    SELECT id, curva_json, criado_em, atualizado_em
+                    FROM curvas_avulsas
+                    ORDER BY atualizado_em DESC
+                    LIMIT ?
+                    """,
+                    (limite,),
+                ).fetchall()
+        return [curva for linha in linhas if (curva := self._curva_avulsa_da_linha(linha)) is not None]
+
+    def remover_curva_avulsa(self, curva_id):
+        """Remove a cópia avulsa; o código reservado continua sem reutilização."""
+        curva_id = str(curva_id or "").strip()
+        if not curva_id:
+            return False
+        with self._conectar() as conexao:
+            cursor = conexao.execute("DELETE FROM curvas_avulsas WHERE id = ?", (curva_id,))
+        return bool(cursor.rowcount)
 
     def atualizar_codigo_curva(self, pn, sn, codigo_curva, forcar_novo=False):
         """Grava o identificador gerado na própria curva já arquivada."""
@@ -1815,10 +1968,6 @@ def montar_relatorio_html(
 
 def abrir_relatorio(app):
     """Abre o formulário de relatório, com busca e manutenção do cadastro por PN."""
-    app.calcular_e_plotar()
-    if app._ultimo_resultado is None:
-        return
-
     janela = ctk.CTkToplevel(app)
     janela.title(tr("report_title"))
     largura_tela = janela.winfo_screenwidth()

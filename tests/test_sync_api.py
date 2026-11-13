@@ -6,6 +6,7 @@ import asyncio
 import hashlib
 import json
 import os
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
@@ -101,12 +102,16 @@ class SyncApiTests(unittest.TestCase):
 
     def test_system_sync_merges_newest_data_and_compacts_tombstone(self):
         self._activate()
+        agora = datetime.now(timezone.utc)
+        horario_atual = (agora - timedelta(hours=2)).isoformat()
+        horario_antigo = (agora - timedelta(hours=3)).isoformat()
+        horario_exclusao = (agora - timedelta(hours=1)).isoformat()
         first = self._sync(
             p_settings={"language": "PT"},
-            p_settings_updated_at="2026-11-05T10:00:00+00:00",
+            p_settings_updated_at=horario_atual,
             p_records=[{
                 "pn": "PN-001", "serial_number": "", "data": {"Peça / PN": "PN-001"},
-                "curve": {"codigo_curva": "A2542"}, "updated_at": "2026-11-05T10:00:00+00:00",
+                "curve": {"codigo_curva": "A2542"}, "updated_at": horario_atual,
                 "deleted": False,
             }],
         )
@@ -115,14 +120,14 @@ class SyncApiTests(unittest.TestCase):
 
         stale = self._sync(p_records=[{
             "pn": "PN-001", "serial_number": "", "data": {"Peça / PN": "antigo"},
-            "curve": None, "updated_at": "2026-11-05T09:00:00+00:00", "deleted": False,
+            "curve": None, "updated_at": horario_antigo, "deleted": False,
         }])
         self.assertEqual(stale.status_code, 200)
         self.assertEqual(self._json_response(stale)["records"][0]["curve"]["codigo_curva"], "A2542")
 
         deleted = self._sync(p_records=[{
             "pn": "PN-001", "serial_number": "", "data": {"não": "exportado"},
-            "curve": {"não": "exportada"}, "updated_at": "2026-11-05T11:00:00+00:00", "deleted": True,
+            "curve": {"não": "exportada"}, "updated_at": horario_exclusao, "deleted": True,
         }])
         item = self._json_response(deleted)["records"][0]
         self.assertTrue(item["deleted"])

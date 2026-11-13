@@ -1,6 +1,6 @@
 import hashlib
 import json
-import os, re, shutil, sys, threading
+import os, re, shutil, sqlite3, sys, threading
 import tkinter as tk
 from tkinter import filedialog, messagebox
 import webbrowser
@@ -77,12 +77,15 @@ from curvsat.reporting.reports import (
     abrir_historico_relatorios,
     abrir_relatorio,
     avaliar_intensidade_requerida,
+    criar_dados_processo_curva,
     criar_dados_relatorio,
     destacar_faixa_intensidade,
     extrair_faixa_intensidade,
     montar_relatorio_html as montar_relatorio_html_modulo,
 )
 from curvsat.ui.technical_references import abrir_referencias_tecnicas
+from curvsat.ui.saved_curves import abrir_curvas_salvas
+from curvsat.ui.sieve_analysis import _ativar_quebra_automatica
 from curvsat.ui.tooltip import add_tooltip
 from curvsat.ui.info_screens import abrir_informacoes_desenvolvedor, abrir_informacoes_sistema, abrir_licenca_sincronizacao
 from curvsat.services.license import (
@@ -517,6 +520,8 @@ class AlmenApp(ctk.CTk):
         self._intensidade_destaque_exemplo = None
         self._destaque_intensidade_atual = None
         self._origem_curva = {"tipo": "example"}
+        self._curva_avulsa_id = None
+        self._editando_curva_avulsa = False
         self.dados_relatorio = {
             **{rotulo: "" for rotulo in CAMPO_TEXTO_RELATORIO},
             **{rotulo: "" for rotulo in CAMPO_UNIDADE_RELATORIO},
@@ -701,8 +706,11 @@ class AlmenApp(ctk.CTk):
         for coluna, cabecalho in enumerate(self.cabecalhos_medicoes):
             cabecalho.grid(row=0, column=coluna, padx=5, pady=(4, 2), sticky="ew")
 
-        calculate_button = ctk.CTkButton(
-            left_frame,
+        calculate_actions = ctk.CTkFrame(left_frame, fg_color="transparent")
+        calculate_actions.grid(row=3, column=0, padx=15, pady=10, sticky="ew")
+        calculate_actions.grid_columnconfigure((0, 1), weight=1, uniform="acao_curva")
+        self.calculate_button = ctk.CTkButton(
+            calculate_actions,
             text=self.t("calculate"),
             font=ctk.CTkFont(size=14, weight="bold"),
             height=40,
@@ -710,8 +718,19 @@ class AlmenApp(ctk.CTk):
             hover_color="#2ecc71",
             command=self.calcular_e_plotar,
         )
-        calculate_button.grid(row=3, column=0, padx=15, pady=10, sticky="ew")
-        add_tooltip(calculate_button, self.t("tooltip_calculate"))
+        self.calculate_button.grid(row=0, column=0, columnspan=2, sticky="ew")
+        add_tooltip(self.calculate_button, self.t("tooltip_calculate"))
+        self.save_curve_button = ctk.CTkButton(
+            calculate_actions,
+            text=self.t("save_curve"),
+            font=ctk.CTkFont(size=14, weight="bold"),
+            height=40,
+            fg_color="#d17b0f",
+            hover_color="#e6911a",
+            command=self.salvar_curva_avulsa,
+        )
+        add_tooltip(self.save_curve_button, self.t("tooltip_save_curve"))
+        self._atualizar_botoes_curva_avulsa()
 
         report_button = ctk.CTkButton(
             left_frame,
@@ -744,8 +763,15 @@ class AlmenApp(ctk.CTk):
             justify="left",
         )
         self.lbl_hsat.grid(row=1, column=0, padx=10, pady=2, sticky="ew")
-        self.lbl_status = ctk.CTkLabel(left_frame, text="", font=ctk.CTkFont(size=11), text_color="#e74c3c")
-        self.lbl_status.grid(row=6, column=0, padx=15, pady=(0, 10))
+        self.lbl_status = _ativar_quebra_automatica(ctk.CTkLabel(
+            left_frame,
+            text="",
+            font=ctk.CTkFont(size=11),
+            text_color="#e74c3c",
+            anchor="w",
+            justify="left",
+        ))
+        self.lbl_status.grid(row=6, column=0, padx=15, pady=(0, 10), sticky="ew")
 
         right_frame = ctk.CTkFrame(self, corner_radius=10)
         right_frame.grid(row=0, column=1, padx=(0, 15), pady=15, sticky="nsew")
@@ -801,6 +827,17 @@ class AlmenApp(ctk.CTk):
             font=ctk.CTkFont(size=10),
             text_color="#d7e4f2",
         ).grid(row=2, column=0, padx=14, pady=(2, 8), sticky="w")
+        saved_curves_button = ctk.CTkButton(
+            referencia_frame,
+            text=self.t("saved_curves"),
+            width=150,
+            height=32,
+            fg_color="#d17b0f",
+            hover_color="#e6911a",
+            command=self.abrir_curvas_salvas,
+        )
+        saved_curves_button.grid(row=1, column=1, rowspan=2, padx=(14, 4), pady=8, sticky="e")
+        add_tooltip(saved_curves_button, self.t("tooltip_saved_curves"))
         history_button = ctk.CTkButton(
             referencia_frame,
             text=self.t("generated_reports"),
@@ -810,7 +847,7 @@ class AlmenApp(ctk.CTk):
             hover_color="#435361",
             command=self.abrir_historico_relatorios,
         )
-        history_button.grid(row=1, column=1, rowspan=2, padx=(14, 4), pady=8, sticky="e")
+        history_button.grid(row=1, column=2, rowspan=2, padx=4, pady=8, sticky="e")
         add_tooltip(history_button, self.t("tooltip_generated_reports"))
         technical_tables_button = ctk.CTkButton(
             referencia_frame,
@@ -819,10 +856,10 @@ class AlmenApp(ctk.CTk):
             height=32,
             command=lambda: abrir_referencias_tecnicas(self),
         )
-        technical_tables_button.grid(row=1, column=2, rowspan=2, padx=(4, 14), pady=8, sticky="e")
+        technical_tables_button.grid(row=1, column=3, rowspan=2, padx=4, pady=8, sticky="e")
         add_tooltip(technical_tables_button, self.t("tooltip_technical_tables"))
         info_buttons_frame = ctk.CTkFrame(referencia_frame, fg_color="transparent")
-        info_buttons_frame.grid(row=1, column=3, rowspan=2, padx=(0, 14), pady=8, sticky="e")
+        info_buttons_frame.grid(row=1, column=4, rowspan=2, padx=(0, 14), pady=8, sticky="e")
         developer_info_button = ctk.CTkButton(
             info_buttons_frame,
             text="🛠",
@@ -939,6 +976,7 @@ class AlmenApp(ctk.CTk):
             self._atualizar_textos_unidade()
 
     def _load_sample_data(self):
+        self._definir_modo_curva_avulsa(False)
         curva_salva = self.banco_pn.obter_ultima_curva(incluir_origem=True)
         while self.rows:
             self.remove_row()
@@ -956,6 +994,10 @@ class AlmenApp(ctk.CTk):
     def _texto_origem_curva(self):
         origem = self._origem_curva
         tipo = origem.get("tipo")
+        if tipo == "standalone_new":
+            return self.t("curve_source_standalone_new")
+        if tipo == "standalone":
+            return self.t("curve_source_standalone", code=origem.get("code") or "-")
         if tipo == "selected":
             return self.t(
                 "curve_source_selected",
@@ -971,6 +1013,100 @@ class AlmenApp(ctk.CTk):
         self._origem_curva = {"tipo": tipo, "router": router, "pn": pn, "sn": sn}
         if hasattr(self, "lbl_origem_curva"):
             self.lbl_origem_curva.configure(text=self._texto_origem_curva())
+
+    def _atualizar_botoes_curva_avulsa(self):
+        if not hasattr(self, "calculate_button") or not hasattr(self, "save_curve_button"):
+            return
+        if self._editando_curva_avulsa:
+            self.calculate_button.grid_configure(columnspan=1, padx=(0, 5))
+            self.save_curve_button.grid(row=0, column=1, padx=(5, 0), sticky="ew")
+        else:
+            self.save_curve_button.grid_forget()
+            self.calculate_button.grid_configure(columnspan=2, padx=0)
+
+    def _definir_modo_curva_avulsa(self, ativo, curva_id=None):
+        self._editando_curva_avulsa = bool(ativo)
+        self._curva_avulsa_id = str(curva_id).strip() if curva_id else None
+        self._atualizar_botoes_curva_avulsa()
+
+    def iniciar_nova_curva_avulsa(self, dados_processo=None):
+        """Prepara a tela principal para gerar uma curva sem vínculo com PN."""
+        dados_relatorio = criar_dados_relatorio()
+        dados_relatorio.update(criar_dados_processo_curva(dados_processo))
+        self.dados_relatorio = dados_relatorio
+        intensidade = dados_relatorio["Intensidade de peening"]
+        unidade_intensidade = dados_relatorio["Unidade de Intensidade de peening"]
+        while self.rows:
+            self.remove_row()
+        self._codigo_curva_atual = None
+        self._assinatura_curva_atual = None
+        self._ultimo_resultado = None
+        self._intensidade_destaque_exemplo = (intensidade, unidade_intensidade)
+        self._definir_modo_curva_avulsa(True)
+        for _ in range(4):
+            self.add_row()
+        self._origem_curva = {"tipo": "standalone_new"}
+        self.lbl_origem_curva.configure(text=self._texto_origem_curva())
+        self.lbl_tsat.configure(text=f"{self.t('saturation_time')}: --")
+        self.lbl_hsat.configure(text=f"{self.t('intensity')}: --")
+        self.lbl_status.configure(text=self.t("standalone_curve_editing"), text_color="#a65d00")
+        self.ax.clear()
+        self._format_axes()
+        self.canvas.draw()
+
+    def carregar_curva_avulsa(self, curva):
+        """Seleciona uma curva da biblioteca como a curva ativa da tela principal."""
+        if not isinstance(curva, dict):
+            return False
+        while self.rows:
+            self.remove_row()
+        self.desvios_laminas.clear()
+        if not self._carregar_curva_salva(curva):
+            return False
+        dados_relatorio = criar_dados_relatorio()
+        dados_relatorio.update(criar_dados_processo_curva(curva.get("dados_relatorio")))
+        if curva.get("intensidade"):
+            dados_relatorio["Intensidade de peening"] = curva["intensidade"]
+            dados_relatorio["Unidade de Intensidade de peening"] = curva.get(
+                "unidade_intensidade", dados_relatorio["Unidade de Intensidade de peening"]
+            )
+        self.dados_relatorio = dados_relatorio
+        self._definir_modo_curva_avulsa(True, curva.get("_id"))
+        self._origem_curva = {"tipo": "standalone", "code": curva.get("codigo_curva", "")}
+        self.lbl_origem_curva.configure(text=self._texto_origem_curva())
+        self.calcular_e_plotar()
+        return True
+
+    def salvar_curva_avulsa(self):
+        """Persiste a curva ativa na biblioteca, sem criar cadastro de PN."""
+        self.calcular_e_plotar()
+        resultado = self._ultimo_resultado
+        if resultado is None:
+            return None
+        if not resultado.get("validacao", {}).get("valida"):
+            self.lbl_status.configure(text=self.t("standalone_curve_must_be_valid"), text_color="#c0392b")
+            return None
+        try:
+            curva = self.curva_atual_para_salvar()
+            salva = self.banco_pn.salvar_curva_avulsa(curva, self._curva_avulsa_id)
+        except (OSError, sqlite3.Error, ValueError) as err:
+            self.lbl_status.configure(
+                text=self.t("standalone_curve_save_error", message=err),
+                text_color="#c0392b",
+            )
+            return None
+        self._codigo_curva_atual = salva["codigo_curva"]
+        self._definir_modo_curva_avulsa(True, salva["_id"])
+        self._origem_curva = {"tipo": "standalone", "code": salva["codigo_curva"]}
+        self.lbl_origem_curva.configure(text=self._texto_origem_curva())
+        self.lbl_status.configure(
+            text=self.t("standalone_curve_saved", code=salva["codigo_curva"]),
+            text_color="#1f6b45",
+        )
+        return salva
+
+    def abrir_curvas_salvas(self):
+        abrir_curvas_salvas(self)
 
     def _carregar_curva_salva(self, curva):
         """Carrega a última curva de PN como exemplo, mantendo o fallback estático seguro."""
@@ -1060,6 +1196,7 @@ class AlmenApp(ctk.CTk):
         self.desvios_laminas.clear()
         if not self._carregar_curva_salva(curva):
             return False
+        self._definir_modo_curva_avulsa(False)
         self._definir_origem_curva("selected", router, pn, sn)
         self.calcular_e_plotar()
         return True
@@ -1096,6 +1233,12 @@ class AlmenApp(ctk.CTk):
             for nome, desvio in zip(laminas, desvios)
             if nome is not None
         }
+        dados_processo = criar_dados_processo_curva(getattr(self, "dados_relatorio", None))
+        intensidade_desejada = getattr(self, "_intensidade_destaque_exemplo", None)
+        if intensidade_desejada:
+            intensidade, unidade_intensidade = intensidade_desejada
+            dados_processo["Intensidade de peening"] = intensidade
+            dados_processo["Unidade de Intensidade de peening"] = unidade_intensidade
         return {
             "tempos": [float(valor) for valor in tempos],
             "alturas": [float(valor) for valor in alturas],
@@ -1105,6 +1248,9 @@ class AlmenApp(ctk.CTk):
             "tipo_lamina": self.tipo_lamina,
             "tipo_exposicao": self.tipo_exposicao,
             "codigo_curva": getattr(self, "_codigo_curva_atual", None),
+            "intensidade": dados_processo["Intensidade de peening"],
+            "unidade_intensidade": dados_processo["Unidade de Intensidade de peening"],
+            "dados_relatorio": dados_processo,
         }
 
     def _obter_dados_entradas(self):

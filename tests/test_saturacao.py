@@ -1,11 +1,12 @@
 import os
 import unittest
 import sqlite3
+from contextlib import ExitStack
 from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
 from tempfile import TemporaryDirectory
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import numpy as np
 from matplotlib.figure import Figure
@@ -30,6 +31,7 @@ from curvsat.reporting.reports import (
     CAMPO_UNIDADE_RELATORIO,
     calcular_sha256_relatorio,
     converter_relatorio_html_para_pdf,
+    criar_dados_processo_curva,
     criar_dados_relatorio,
     destacar_faixa_intensidade,
     extrair_faixa_intensidade,
@@ -38,6 +40,7 @@ from curvsat.reporting.reports import (
     nome_arquivo_pdf_relatorio,
     remover_destaque_faixa_intensidade,
 )
+from curvsat.reporting import reports as reports_module
 from curvsat.content.technical_data import GRANULOMETRIA_ESFERAS, NORMAS_REFERENCIA
 from curvsat.content.translations import LANGUAGES, _TEXTS, load_language, save_language, technical_content, tr
 
@@ -82,6 +85,66 @@ class CalcularSaturacaoTests(unittest.TestCase):
         self.assertEqual(cadastro["Router"], "Router 01")
         self.assertEqual(cadastro["Esfera"], "S230")
 
+    def test_dados_da_curva_guardam_processo_e_excluem_identificacao_e_observacao(self):
+        dados = criar_dados_processo_curva({
+            "Peça / PN": "PN-ANTERIOR",
+            "Observações": "não deve acompanhar a curva",
+            "Equipamento": "Máquina 07",
+            "Esfera": "S230",
+            "Dureza": "45 - 52",
+            "Unidade de Dureza": "HRC",
+            "Bico": "12",
+            "Unidade de Bico": "mm",
+            "Pressão": "4,5",
+            "Unidade de Pressão": "bar",
+            "Intensidade de peening": "0,014 - 0,018",
+            "Unidade de Intensidade de peening": "in",
+        })
+
+        self.assertNotIn("Peça / PN", dados)
+        self.assertNotIn("Observações", dados)
+        self.assertEqual(dados["Equipamento"], "Máquina 07")
+        self.assertEqual(dados["Esfera"], "S230")
+        self.assertEqual(dados["Dureza"], "45 - 52")
+        self.assertEqual(dados["Unidade de Dureza"], "HRC")
+        self.assertEqual(dados["Pressão"], "4,5")
+        self.assertEqual(dados["Intensidade de peening"], "0,014 - 0,018")
+        self.assertEqual(dados["Unidade de Intensidade de peening"], "in")
+
+    def test_gerenciar_dados_abre_sem_calcular_ou_exigir_curva_pronta(self):
+        janela = MagicMock()
+        janela.winfo_screenwidth.return_value = 1200
+        janela.winfo_screenheight.return_value = 800
+        janela.winfo_width.return_value = 960
+        widget = MagicMock()
+        widget.get.return_value = ""
+        widget.winfo_exists.return_value = True
+        variavel = MagicMock()
+        variavel.get.return_value = ""
+        app = SimpleNamespace(
+            calcular_e_plotar=MagicMock(),
+            _ultimo_resultado=None,
+            dados_relatorio=criar_dados_relatorio(),
+            banco_pn=MagicMock(),
+            lbl_status=MagicMock(),
+        )
+
+        with ExitStack() as pilha:
+            toplevel_mock = pilha.enter_context(
+                patch.object(reports_module.ctk, "CTkToplevel", return_value=janela)
+            )
+            for nome in (
+                "CTkLabel", "CTkFrame", "CTkScrollableFrame", "CTkEntry", "CTkComboBox",
+                "CTkOptionMenu", "CTkTextbox", "CTkButton", "CTkFont",
+            ):
+                pilha.enter_context(patch.object(reports_module.ctk, nome, return_value=widget))
+            pilha.enter_context(patch.object(reports_module.ctk, "StringVar", return_value=variavel))
+            pilha.enter_context(patch.object(reports_module, "add_tooltip"))
+            reports_module.abrir_relatorio(app)
+
+        app.calcular_e_plotar.assert_not_called()
+        toplevel_mock.assert_called_once_with(app)
+
     def test_curva_salva_e_recarrega_desvios_de_lamina(self):
         class Entrada:
             def __init__(self, valor):
@@ -115,6 +178,15 @@ class CalcularSaturacaoTests(unittest.TestCase):
             tipo_lamina="A",
             tipo_exposicao="seconds",
             _codigo_curva_atual="A4832",
+            _intensidade_destaque_exemplo=("0,014 - 0,018", "in"),
+            dados_relatorio={
+                "Equipamento": "Máquina 07",
+                "Esfera": "S230",
+                "Dureza": "45 - 52",
+                "Unidade de Dureza": "HRC",
+                "Pressão": "4,5",
+                "Unidade de Pressão": "bar",
+            },
         )
 
         curva = AlmenApp.curva_atual_para_salvar(app)
@@ -123,6 +195,13 @@ class CalcularSaturacaoTests(unittest.TestCase):
         self.assertEqual(curva["laminas"], ["L-NEG", "L-ZERO", "L-NEG", "L-ZERO"])
         self.assertEqual(curva["desvios_laminas"], {"L-NEG": -0.0011, "L-ZERO": 0.0})
         self.assertEqual(curva["codigo_curva"], "A4832")
+        self.assertEqual(curva["intensidade"], "0,014 - 0,018")
+        self.assertEqual(curva["dados_relatorio"]["Equipamento"], "Máquina 07")
+        self.assertEqual(curva["dados_relatorio"]["Esfera"], "S230")
+        self.assertEqual(curva["dados_relatorio"]["Dureza"], "45 - 52")
+        self.assertEqual(curva["dados_relatorio"]["Unidade de Dureza"], "HRC")
+        self.assertEqual(curva["dados_relatorio"]["Pressão"], "4,5")
+        self.assertNotIn("Observações", curva["dados_relatorio"])
 
         linhas_recarregadas = []
         app_recarregado = SimpleNamespace(
@@ -191,6 +270,46 @@ class CalcularSaturacaoTests(unittest.TestCase):
                 {**curva, "alturas": [0.1, 0.2, 0.3, 0.41], "codigo_curva": "A00000"},
             )
             self.assertNotEqual(primeiro, banco.obter_curva("PN-3")["codigo_curva"])
+
+    def test_curva_avulsa_so_vincula_pn_no_salvamento_do_cadastro(self):
+        curva = {
+            "tipo_lamina": "A",
+            "tipo_exposicao": "seconds",
+            "unidade_arco": "mm",
+            "tempos": [1.0, 2.0, 4.0, 8.0],
+            "alturas": [0.10, 0.17, 0.22, 0.24],
+        }
+        with TemporaryDirectory() as diretorio:
+            banco = BancoDadosPN(Path(diretorio) / "cadastros.db")
+            avulsa = banco.salvar_curva_avulsa(curva)
+
+            self.assertRegex(avulsa["codigo_curva"], r"^A[0-9A-Z]{5}$")
+            self.assertEqual(banco.buscar_registros(), [])
+            self.assertEqual(banco.buscar_curvas_avulsas(avulsa["codigo_curva"])[0]["_id"], avulsa["_id"])
+
+            banco.salvar({"Peça / PN": "PN-NOVO", "SN da peça": "SN-1"}, avulsa)
+
+            vinculada = banco.obter_curva("PN-NOVO", "SN-1")
+            self.assertEqual(vinculada["codigo_curva"], avulsa["codigo_curva"])
+            self.assertIsNotNone(banco.obter_curva_avulsa(avulsa["_id"]))
+
+    def test_curva_avulsa_pode_ser_atualizada_buscada_e_excluida(self):
+        curva = {
+            "tipo_lamina": "N",
+            "tipo_exposicao": "passes",
+            "unidade_arco": "in",
+            "tempos": [1, 2, 3, 4],
+            "alturas": [0.004, 0.006, 0.007, 0.0075],
+        }
+        with TemporaryDirectory() as diretorio:
+            banco = BancoDadosPN(Path(diretorio) / "cadastros.db")
+            primeira = banco.salvar_curva_avulsa(curva)
+            atualizada = banco.salvar_curva_avulsa(curva, primeira["_id"])
+
+            self.assertEqual(atualizada["_id"], primeira["_id"])
+            self.assertEqual(len(banco.buscar_curvas_avulsas("passes")), 1)
+            self.assertTrue(banco.remover_curva_avulsa(primeira["_id"]))
+            self.assertEqual(banco.buscar_curvas_avulsas(), [])
 
 
     def test_indicador_informa_a_origem_dos_dados_da_curva(self):
@@ -781,6 +900,11 @@ class CalcularSaturacaoTests(unittest.TestCase):
         self.assertIn("🇪🇸", LANGUAGES["ES"])
         self.assertEqual(tr("settings", "EN"), "Settings")
         self.assertEqual(tr("settings", "ES"), "Configuración")
+
+    def test_botao_gerenciar_curvas_e_traduzido(self):
+        self.assertEqual(tr("saved_curves", "PT"), "Gerenciar curvas")
+        self.assertEqual(tr("saved_curves", "EN"), "Manage curves")
+        self.assertEqual(tr("saved_curves", "ES"), "Gestionar curvas")
 
     def test_dicionario_tem_as_mesmas_chaves_em_todos_os_idiomas(self):
         chaves_pt = set(_TEXTS["PT"])
