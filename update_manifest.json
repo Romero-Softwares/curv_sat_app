@@ -1,17 +1,17 @@
 {
   "app": "CurvSat",
-  "version": "1.0.7",
-  "release_notes": "Inclui analise granulometrica por peneiras, historico e relatorios traduzidos, melhorias na identificacao e busca de curvas, exportacao PDF interna e ajustes de interface.",
-  "download_url": "https://merotec.online/download/ASCC-System-1.0.7.exe",
+  "version": "1.0.8",
+  "release_notes": "Adiciona gerenciamento de curvas sem vinculo, navegacao sem bloqueios e preenchimento automatico dos dados de processo, esfera e dureza.",
+  "download_url": "https://merotec.online/download/ASCC-System-1.0.8.exe",
   "artifact": {
-    "name": "ASCC-System-1.0.7.exe",
-    "sha256": "beee8685c2dde1e6b0b3f76c038c60d7c54303ec30c049ad8cc8f30dddaf4fac",
-    "size": 79945268
+    "name": "ASCC-System-1.0.8.exe",
+    "sha256": "b7e4024bad4ec82f49615f53570a7df1fdf93437540ba83316436ab1804179e3",
+    "size": 79959897
   },
   "local_signature": {
     "format": "merotec.release-manifest.v1",
     "algorithm": "Ed25519",
     "key_id": "ed25519:e587daae6f8fd5e563622814",
-    "value": "ciGZXgQ1HSvaVGg7K20WLW9XmleUTh3US4-KsWk8Dw7d9f9yyNpgROaBIUNVUg6_58xbMILDrKBaHAfG6VkHCw"
+    "value": "enk4bOGUS5C8joqLIY8S1XFLCwX7LFEfyQsqid9gi9ew2jCqdmZgbZKDY8x2HcmGxlFD3vqEJ6rgZNCOCKfpBg"
   }
 }
