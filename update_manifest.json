@@ -1,7 +1,7 @@
 {
   "app": "CurvSat",
   "version": "1.0.8",
-  "release_notes": "Adiciona gerenciamento de curvas sem vinculo, navegacao sem bloqueios e preenchimento automatico dos dados de processo, esfera e dureza.",
+  "release_notes": "Adiciona gerenciamento de curvas sem vinculo, navegação sem bloqueios e preenchimento automatico dos dados de processo, esfera e dureza.",
   "download_url": "https://merotec.online/download/ASCC-System-1.0.8.exe",
   "artifact": {
     "name": "ASCC-System-1.0.8.exe",
