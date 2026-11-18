@@ -1,4 +1,4 @@
-"""API SQLite compatível com as RPCs de sincronização CurvSat no Supabase.
+"""API SQLite compatível com as RPCs de sincronização CurvSat no Servidor Merotec.
 
 O módulo reproduz os dois contratos que o aplicativo desktop já conhece:
 ``sync_curvsat_license`` e ``sync_curvsat_system_data``. Ele não expõe tabelas
